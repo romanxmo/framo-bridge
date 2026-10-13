@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Framo Bridge",
     "author": "Roman Moor",
-    "version": (0, 4, 6),
+    "version": (0, 5, 0),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > Framo Bridge",
     "description": "Export optimized GLB models directly to web applications with Draco compression, mesh decimation, and native texture scaling (no dependencies required)",
@@ -15,7 +15,9 @@ import bpy
 from .core import properties, operators, dependencies
 from .ui import panels, icons
 from .services import preview_server, update_service
+from .control import commands as control_commands
 from .utils import logging_config
+from .utils.thread_safety import set_control_enabled
 
 classes = [
     properties.FramoBridgePreferences,
@@ -81,7 +83,12 @@ def register():
     
     # Register properties
     bpy.types.Scene.framo_export_settings = bpy.props.PointerProperty(type=properties.FramoExportSettings)
-    
+    # Session-only: no storage of its own (get/set), so never saved in a .blend
+    bpy.types.WindowManager.framo_control_enabled = properties.framo_control_enabled_property()
+
+    # Main-thread runner for commands Framo sends to /command
+    control_commands.register()
+
     # Start server
     preview_server.start_server()
     
@@ -91,10 +98,16 @@ def register():
 def unregister():
     # Stop server
     preview_server.stop_server()
-    
+
+    # Stop taking commands; anything still queued is answered with an error
+    set_control_enabled(False)
+    control_commands.unregister()
+
     # Unregister properties
     if hasattr(bpy.types.Scene, 'framo_export_settings'):
         del bpy.types.Scene.framo_export_settings
+    if hasattr(bpy.types.WindowManager, 'framo_control_enabled'):
+        del bpy.types.WindowManager.framo_control_enabled
     
     # Unregister classes
     for cls in reversed(classes):

@@ -1,0 +1,643 @@
+[
+ {
+  "name": "valid full spec",
+  "expected": {
+   "ok": true,
+   "value": {
+    "objects": [
+     {
+      "id": "sofa",
+      "asset": "cat_0142",
+      "position": [
+       0,
+       0,
+       0
+      ],
+      "rotation": [
+       0,
+       0,
+       90
+      ],
+      "height": 0.8,
+      "keys": [
+       {
+        "frame": 1,
+        "position": [
+         0,
+         0,
+         0
+        ]
+       },
+       {
+        "frame": 48,
+        "rotation": [
+         0,
+         0,
+         180
+        ]
+       }
+      ]
+     },
+     {
+      "id": "wall_back",
+      "primitive": "box",
+      "size": [
+       6,
+       0.2,
+       3
+      ],
+      "position": [
+       0,
+       3,
+       0
+      ],
+      "color": "#d8d2c8",
+      "roughness": 0.7,
+      "metallic": 0
+     },
+     {
+      "id": "ball",
+      "primitive": "sphere",
+      "size": [
+       1,
+       1,
+       1
+      ],
+      "position": [
+       2,
+       0,
+       0
+      ]
+     }
+    ],
+    "lights": [
+     {
+      "id": "sun",
+      "type": "sun",
+      "position": [
+       0,
+       0,
+       10
+      ],
+      "strength": 3,
+      "rotation": [
+       50,
+       0,
+       30
+      ],
+      "size": 2
+     }
+    ],
+    "camera": {
+     "lens": 35,
+     "keys": [
+      {
+       "frame": 1,
+       "position": [
+        0,
+        -6,
+        1.6
+       ],
+       "target": [
+        0,
+        0,
+        1
+       ]
+      },
+      {
+       "frame": 96,
+       "position": [
+        0,
+        -4,
+        1.4
+       ],
+       "target": [
+        0,
+        0,
+        1
+       ]
+      }
+     ]
+    },
+    "world": {
+     "color": "#202020",
+     "strength": 1
+    },
+    "render": {
+     "fps": 24,
+     "frames": [
+      1,
+      96
+     ],
+     "resolution": [
+      1280,
+      720
+     ]
+    }
+   }
+  }
+ },
+ {
+  "name": "empty objects only",
+  "expected": {
+   "ok": true,
+   "value": {
+    "objects": []
+   }
+  }
+ },
+ {
+  "name": "empty lights kept",
+  "expected": {
+   "ok": true,
+   "value": {
+    "objects": [],
+    "lights": []
+   }
+  }
+ },
+ {
+  "name": "float integers",
+  "expected": {
+   "ok": true,
+   "value": {
+    "objects": [],
+    "render": {
+     "fps": 24,
+     "frames": [
+      1,
+      2
+     ],
+     "resolution": [
+      64,
+      64
+     ]
+    }
+   }
+  }
+ },
+ {
+  "name": "not an object",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "scene: must be an object"
+   ]
+  }
+ },
+ {
+  "name": "null",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "scene: must be an object"
+   ]
+  }
+ },
+ {
+  "name": "missing objects",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "objects: must be a list (it may be empty)"
+   ]
+  }
+ },
+ {
+  "name": "objects not a list",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "objects: must be a list (it may be empty)"
+   ]
+  }
+ },
+ {
+  "name": "unknown top-level keys",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "scene.1: is not a field this scene format has",
+    "scene.2: is not a field this scene format has",
+    "scene.units: is not a field this scene format has",
+    "scene.zeta: is not a field this scene format has"
+   ]
+  }
+ },
+ {
+  "name": "plan sketch with rotationZ",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "scene.units: is not a field this scene format has",
+    "objects[0].rotationZ: is not a field this scene format has"
+   ]
+  }
+ },
+ {
+  "name": "both asset and primitive",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "objects[0]: needs exactly one of \"asset\" (a catalog id) or \"primitive\""
+   ]
+  }
+ },
+ {
+  "name": "neither asset nor primitive",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "objects[0]: needs exactly one of \"asset\" (a catalog id) or \"primitive\""
+   ]
+  }
+ },
+ {
+  "name": "asset null",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "objects[0].asset: must be a catalog id from search_assets"
+   ]
+  }
+ },
+ {
+  "name": "asset empty and bad height",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "objects[0].asset: must be a catalog id from search_assets",
+    "objects[0].height: must be between 0.01 and 1000"
+   ]
+  }
+ },
+ {
+  "name": "primitive bad everything",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "objects[0].id: must be a string of 1–64 characters",
+    "objects[0].position: must be three numbers [x, y, z]",
+    "objects[0].rotation: must be three numbers [x, y, z]",
+    "objects[0].primitive: must be one of box, sphere, cylinder, cone, plane",
+    "objects[0].size: values must not be negative",
+    "objects[0].color: must be a hex colour like \"#a0b1c2\"",
+    "objects[0].roughness: must be between 0 and 1",
+    "objects[0].metallic: must be a number"
+   ]
+  }
+ },
+ {
+  "name": "size negative",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "objects[0].size: values must not be negative"
+   ]
+  }
+ },
+ {
+  "name": "size too large",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "objects[0].size: values must be within ±1000"
+   ]
+  }
+ },
+ {
+  "name": "position too far",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "objects[0].position: values must be within ±10000"
+   ]
+  }
+ },
+ {
+  "name": "bool in vec",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "objects[0].size: must be three numbers [x, y, z]"
+   ]
+  }
+ },
+ {
+  "name": "string in vec",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "objects[0].size: must be three numbers [x, y, z]"
+   ]
+  }
+ },
+ {
+  "name": "bad id chars",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "objects[0].id: may only use letters, digits, '_', '-' and '.'"
+   ]
+  }
+ },
+ {
+  "name": "id too long",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "objects[0].id: must be a string of 1–64 characters"
+   ]
+  }
+ },
+ {
+  "name": "id emoji length",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "objects[0].id: must be a string of 1–64 characters"
+   ]
+  }
+ },
+ {
+  "name": "id not string",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "objects[0].id: must be a string of 1–64 characters"
+   ]
+  }
+ },
+ {
+  "name": "duplicate ids across objects and lights",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "objects[1].id: \"a\" is used twice; ids must be unique",
+    "lights[0].id: \"a\" is used twice; ids must be unique"
+   ]
+  }
+ },
+ {
+  "name": "keys problems",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "objects[0].keys[0]: a keyframe needs a position, a rotation, or both",
+    "objects[0].keys[1].frame: must be a whole number",
+    "objects[0].keys[2].frame: must be between 0 and 1200",
+    "objects[0].keys[2].rotation: values must be within ±3600",
+    "objects[0].keys[3]: must be an object",
+    "objects[0].keys[4].scale: is not a field this scene format has",
+    "objects[0].keys[5].frame: must be between 0 and 1200"
+   ]
+  }
+ },
+ {
+  "name": "keys not list",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "objects[0].keys: must be a list of keyframes"
+   ]
+  }
+ },
+ {
+  "name": "too many keys",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "objects[0].keys: at most 64 keyframes"
+   ]
+  }
+ },
+ {
+  "name": "object not record",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "objects[0]: must be an object",
+    "objects[1]: must be an object",
+    "objects[2]: must be an object"
+   ]
+  }
+ },
+ {
+  "name": "too many objects",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "objects: at most 200 objects"
+   ]
+  }
+ },
+ {
+  "name": "lights not list",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "lights: must be a list"
+   ]
+  }
+ },
+ {
+  "name": "too many lights",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "lights: at most 16 lights"
+   ]
+  }
+ },
+ {
+  "name": "light problems",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "lights[0].angle: is not a field this scene format has",
+    "lights[0].type: must be one of sun, point, area, spot",
+    "lights[0].strength: must be between 0 and 1000000",
+    "lights[0].color: must be a hex colour like \"#a0b1c2\"",
+    "lights[0].size: must be between 0 and 180",
+    "lights[1]: must be an object"
+   ]
+  }
+ },
+ {
+  "name": "light big strength",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "lights[0].strength: must be between 0 and 1000000"
+   ]
+  }
+ },
+ {
+  "name": "camera not object",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "camera: must be an object"
+   ]
+  }
+ },
+ {
+  "name": "camera no keys",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "camera.keys: must be a list of at least one keyframe"
+   ]
+  }
+ },
+ {
+  "name": "camera bad lens and keys missing",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "camera.lens: must be between 8 and 300",
+    "camera.keys: must be a list of at least one keyframe"
+   ]
+  }
+ },
+ {
+  "name": "camera too many keys",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "camera.keys: at most 64 keyframes"
+   ]
+  }
+ },
+ {
+  "name": "camera key problems",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "camera.fov: is not a field this scene format has",
+    "camera.lens: must be between 8 and 300",
+    "camera.keys[1].frame: frame 1 is keyed twice",
+    "camera.keys[2]: position and target are the same point, so the camera has no direction",
+    "camera.keys[4].target: must be three numbers [x, y, z]",
+    "camera.keys[5]: must be an object"
+   ]
+  }
+ },
+ {
+  "name": "camera dup frame after invalid",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "camera.keys[0]: position and target are the same point, so the camera has no direction"
+   ]
+  }
+ },
+ {
+  "name": "world problems",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "world.hdri: is not a field this scene format has",
+    "world.color: must be a hex colour like \"#a0b1c2\"",
+    "world.strength: must be between 0 and 100"
+   ]
+  }
+ },
+ {
+  "name": "world not object",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "world: must be an object"
+   ]
+  }
+ },
+ {
+  "name": "render problems",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "render.engine: is not a field this scene format has",
+    "render.fps: must be between 1 and 60",
+    "render.frames: last frame must not come before the first",
+    "render.resolution: width and height must be even numbers"
+   ]
+  }
+ },
+ {
+  "name": "render frames wrong shape",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "render.fps: must be between 1 and 60",
+    "render.frames: must be [first, last]",
+    "render.resolution: must be [width, height]"
+   ]
+  }
+ },
+ {
+  "name": "render res out of range",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "render.resolution[0]: must be between 64 and 1920",
+    "render.resolution[1]: must be between 64 and 1920"
+   ]
+  }
+ },
+ {
+  "name": "render frames bad values",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "render.frames[0]: must be between 0 and 1200",
+    "render.frames[1]: must be between 0 and 1200"
+   ]
+  }
+ },
+ {
+  "name": "render not object",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "render: must be an object"
+   ]
+  }
+ },
+ {
+  "name": "colour with newline",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "objects[0].color: must be a hex colour like \"#a0b1c2\""
+   ]
+  }
+ },
+ {
+  "name": "id with newline",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "objects[0].id: may only use letters, digits, '_', '-' and '.'"
+   ]
+  }
+ },
+ {
+  "name": "fractional limits text",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "objects[0].height: must be between 0.01 and 1000"
+   ]
+  }
+ },
+ {
+  "name": "large integer",
+  "expected": {
+   "ok": false,
+   "errors": [
+    "objects[0].position: must be three numbers [x, y, z]"
+   ]
+  }
+ }
+]

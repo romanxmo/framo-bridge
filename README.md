@@ -175,12 +175,35 @@ Benefits:
 - **Feature Preservation**: Maintains sharp edges and UV seams
 - **Adaptive Processing**: Different settings for different complexity levels
 
+## Framo Control
+
+With **Allow Framo to control Blender** switched on in the panel, a Framo agent can read the scene, build in a "Framo Scene" collection, run Python with the full Blender API, take camera screenshots (flat or rendered) and render clips. Python can change anything in the open file and touch files on this computer, so the switch is off every time Blender starts and is never saved in a .blend file. Every step is one undo step.
+
 ## Server Endpoints
 
-- `GET http://localhost:8080/ping` - Health check
-- `GET http://localhost:8080/latest-model` - Get latest GLB model (binary)
-- `GET http://localhost:8080/latest-model-info` - Get model metadata (JSON)
-- `POST http://localhost:8080/upload-model` - Upload GLB data (internal)
+The server on `localhost:8080` answers only Framo (`https://framo.app`, `https://www.framo.app`, or a local dev server on `http://localhost:<port>` / `http://127.0.0.1:<port>`) and only requests addressed to `localhost:8080` / `127.0.0.1:8080`. Everything else gets `403`.
+
+- `GET /ping` - Health check (the one route answered for any caller)
+- `GET /latest-model` - Get latest GLB model (binary)
+- `GET /latest-model-info` - Get model metadata (JSON)
+- `POST /upload-model` - Upload GLB data (internal; Blender's own export)
+- `GET /user-info`, `POST /connect-user`, `POST /disconnect-user` - The connected Framo user
+- `GET /bridge-info` - Protocol and versions, and whether control is switched on
+- `POST /command` - Run one Framo operation (`status`, `get_scene`, `build_scene`, `screenshot`, `render_start`, `run_python`); refused with `control_disabled` while the switch is off
+- `GET /render/<jobId>`, `GET /render/<jobId>/file` - Preview render progress, and the finished MP4
+
+## Tests
+
+```bash
+# Pure Python (no Blender): origin/host checks, scene validation, asset URLs
+python3 -m unittest discover -s tests -p 'test_*.py'
+
+# Real Blender, headless: builder, screenshot, render, HTTP server (needs port 8080 free)
+/Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup --python-exit-code 1 \
+    --python tests/headless/run.py
+```
+
+`control/scene_spec.py` mirrors the scene format the Framo app validates (`shared/blender-scene.ts`); `tests/fixtures/` holds that parser's answers, regenerated with `node tests/fixtures/generate_scene_spec_cases.mjs <framo-app>/shared/blender-scene.ts`.
 
 ## Browser Compatibility
 
@@ -274,5 +297,5 @@ Copyright (c) 2025 Roman Moor
 ---
 
 **Status**: Active Development
-**Latest Version**: 0.4.0
+**Latest Version**: 0.5.0
 **Blender**: 3.0+ (4.0+ recommended)

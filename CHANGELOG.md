@@ -5,6 +5,28 @@ All notable changes to Framo Bridge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-10-04
+
+### Security
+- **The local server now answers only Framo.** Until now it told every browser that any website could read its answers, so any page you visited while Blender was open could download the last model you sent to Framo (`/latest-model`) and change which Framo user Blender showed as connected (`/connect-user`). Every route now checks who is asking before it does anything:
+  - the request must come from Framo itself (`https://framo.app`, `https://www.framo.app`) or a local Framo dev server (`http://localhost:<port>`, `http://127.0.0.1:<port>`); anything else, including a request with no origin, gets `403` and nothing else;
+  - it must be addressed to `localhost:8080` or `127.0.0.1:8080`, which stops a website from reaching the server under its own domain name (DNS rebinding);
+  - the answer names that one origin instead of `*`.
+  Two things still work without an origin: `GET /ping` (the health check, unreadable to other sites) and the add-on's own upload of an exported model from inside Blender.
+
+### Added
+- **Framo can drive Blender (off by default).** A new switch in the Framo Bridge panel, "Allow Framo to control Blender", lets a Framo agent read your scene, build in it, run Python with the full Blender API, take screenshots (flat for layout, or rendered with the scene's own engine for light and materials) and render clips. The switch is off every time Blender starts and is never saved in your .blend file; with it off, Framo's commands are refused. The panel shows the last command Framo ran.
+- **Full Python access while the switch is on.** Framo's agent can run any Python in Blender, so it can model, texture, light and set up renders like a person at the keyboard. That also means it can change anything in the open file and read or write files on your computer: switch control on only while you want Framo working in Blender. Every step is one undo step (Ctrl+Z).
+- **The scene builder keeps your objects apart.** What it builds goes into a "Framo Scene" collection and is marked as Framo's, and it never moves, edits or deletes anything else. (Python is not bound by this.)
+- **Scene builder.** Boxes, spheres, cylinders, cones and planes in metres with coloured materials, sun/point/area/spot lights, a camera that moves through keyframes while looking at a target, a world colour and the render's frame range, frame rate and resolution. Sending the same scene twice changes nothing; sending an edited scene changes only what was edited.
+- **Library assets.** Models from Framo's asset library are downloaded only from Framo's own storage (https, `*.convex.cloud` / `*.convex.site`), cached by asset id in your temp folder, and placed and scaled to a given height. Downloads respect Blender's "Allow Online Access" setting.
+- **Preview renders.** A clip of the camera move renders to an H.264 MP4 with Workbench, EEVEE, Cycles, or the scene's own render settings; Blender puts back every render setting it borrowed afterwards. Works with Blender 5.x's new video output settings.
+- New routes: `GET /bridge-info`, `POST /command`, `GET /render/<jobId>`, `GET /render/<jobId>/file`; `POST /disconnect-user`, which Framo already calls on sign-out, now clears the connected user.
+
+### Changed
+- The server handles requests in parallel, so a long command no longer holds up `/ping` or the model routes.
+- The panel redraw after Framo connects now happens on Blender's main thread instead of being scheduled from the server thread.
+
 ## [0.4.6] - 2025-11-29
 
 ### Fixed

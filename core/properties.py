@@ -1,7 +1,7 @@
 import bpy
 from bpy.props import BoolProperty, IntProperty, EnumProperty, FloatProperty, StringProperty, CollectionProperty
 from bpy.types import PropertyGroup, AddonPreferences
-from ..utils.thread_safety import get_update_state_copy
+from ..utils.thread_safety import get_update_state_copy, is_control_enabled, set_control_enabled
 from ..utils.constants import ADDON_VERSION
 from ..utils.logging_config import get_logger
 
@@ -73,6 +73,25 @@ def clear_export_status(context=None):
         pass
 
     return None  # Don't repeat the timer
+
+def framo_control_enabled_property():
+    """"Allow Framo to control Blender", on the WindowManager.
+
+    Backed by a module global through get/set, so the property stores nothing:
+    it is off on every Blender start, never saved into a .blend, and readable
+    from the HTTP thread without touching bpy.
+    """
+    return BoolProperty(
+        name="Allow Framo to control Blender",
+        description=(
+            "Let a Framo agent drive this Blender: read the scene, build, render, and run "
+            "Python with the full Blender API, which can change anything in this file and "
+            "read or write files on this computer. Each step can be undone with Ctrl+Z. "
+            "Off again every time Blender starts"
+        ),
+        get=lambda self: is_control_enabled(),
+        set=lambda self, value: set_control_enabled(value),
+    )
 
 class MaterialExpandedState(PropertyGroup):
     """Property group to track expanded state of materials in the UI"""

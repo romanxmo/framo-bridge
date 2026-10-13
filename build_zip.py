@@ -20,6 +20,7 @@ INCLUDE_FILES = [
 ]
 
 INCLUDE_FOLDERS = [
+    'control',
     'core',
     'processing',
     'services',

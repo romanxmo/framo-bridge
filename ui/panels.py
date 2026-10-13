@@ -1,5 +1,5 @@
 import bpy
-from ..utils.thread_safety import get_update_state_copy, get_user_info_copy, safe_material_states_access
+from ..utils.thread_safety import get_update_state_copy, get_user_info_copy, safe_material_states_access, get_control_state_copy
 from ..ui.icons import get_icon_id
 from ..utils.constants import ADDON_VERSION
 from ..processing import material_analyzer, texture_scaler
@@ -95,6 +95,23 @@ class FRAMO_PT_export_panel(bpy.types.Panel):
             row.label(text=f"Connected: {framo_user_info['name']}", icon='LINKED')
         else:
             row.label(text="Disconnected", icon='UNLINKED')
+
+        # Framo control (session-only switch, off on every start)
+        control = get_control_state_copy()
+        control_box = layout.box()
+        control_box.prop(context.window_manager, "framo_control_enabled")
+        col = control_box.column(align=True)
+        col.scale_y = 0.8
+        col.label(text="Framo can run Python here: full Blender access.")
+        col.label(text="Ctrl+Z undoes each step.")
+        if control["last_at"]:
+            outcome = "ok" if control["last_ok"] else "failed"
+            col.label(
+                text=f"Last: {control['last_op']} at {control['last_at']:%H:%M:%S} ({outcome})",
+                icon='CHECKMARK' if control["last_ok"] else 'ERROR',
+            )
+        elif control["enabled"]:
+            col.label(text="Waiting for Framo...", icon='TIME')
         layout.separator()
         
         # Dependencies Status
