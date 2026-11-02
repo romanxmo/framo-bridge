@@ -80,6 +80,7 @@ from framo_bridge.services import preview_server  # noqa: E402
 from framo_bridge.utils import thread_safety  # noqa: E402
 
 framo_bridge.register()
+VERSION = ".".join(map(str, framo_bridge.bl_info["version"]))
 
 
 def pump_while(fn):
@@ -334,7 +335,7 @@ try:
     st = run_op("status", {})
     check("status ok", st["ok"], str(st)[:300])
     st = st["result"]
-    check("status versions", st["bridgeVersion"] == "0.5.0" and st["blenderVersion"] == ".".join(map(str, bpy.app.version)))
+    check("status versions", st["bridgeVersion"] == VERSION and st["blenderVersion"] == ".".join(map(str, bpy.app.version)))
     gltf = next((a for a in st["addons"] if a["module"] == "io_scene_gltf2"), None)
     check("add-ons listed with string versions", gltf is not None and gltf["enabled"] and isinstance(gltf["version"], str)
           and gltf["version"].count(".") >= 1, str(gltf))
@@ -535,18 +536,49 @@ try:
     check("disconnect-user from Framo", request("POST", "/disconnect-user")[0] == 200
           and thread_safety.get_user_info_copy()["name"] is None)
 
+    section("send for the live editor")
+    from framo_bridge.services import export_service, live_link
+
+    def send_cube():
+        for o in list(bpy.data.objects):
+            o.select_set(False)
+        bpy.ops.mesh.primitive_cube_add()
+        bpy.context.active_object.select_set(True)
+        started = time.perf_counter()
+        result = export_service.ExportService().export_to_web(bpy.context, lambda t, m: None)
+        elapsed = time.perf_counter() - started
+        meta = preview_server.server_instance.latest_metadata
+        bpy.data.objects.remove(bpy.context.active_object)
+        return result, meta, elapsed
+
+    settings = bpy.context.scene.framo_export_settings
+    check("Draco is the default", settings.use_draco)
+    live_link.reset()
+    result, meta, plain_s = send_cube()
+    check("a send with no live editor is compressed", result == {'FINISHED'} and meta["live"] is False
+          and meta["export_settings"]["draco_enabled"] is True, str(meta)[:200])
+    status_code, _, _ = request("GET", "/latest-model-info")
+    check("an Upload window poll does not make it live", status_code == 200 and not live_link.is_live())
+    status_code, _, _ = request("GET", "/latest-model-info?live=1")
+    check("a live poll is answered like any other", status_code == 200 and live_link.is_live())
+    result, meta, live_s = send_cube()
+    check("a send while the editor is live skips Draco", result == {'FINISHED'} and meta["live"] is True
+          and meta["export_settings"]["draco_enabled"] is False, str(meta)[:200])
+    print(f"       cube: {plain_s * 1000:.0f} ms compressed, {live_s * 1000:.0f} ms live")
+    live_link.reset()
+
     section("HTTP: control switch and commands")
     status_code, _, body = command("status", {})
     check("control off: 403 control_disabled", status_code == 403 and json.loads(body) == {"ok": False, "error": "control_disabled"})
     info = json.loads(request("GET", "/bridge-info")[2])
-    check("bridge-info", info == {"protocol": 1, "bridgeVersion": "0.5.0",
+    check("bridge-info", info == {"protocol": 1, "bridgeVersion": VERSION,
                                   "blenderVersion": ".".join(map(str, bpy.app.version)), "controlEnabled": False}, str(info))
     thread_safety.set_control_enabled(True)
     check("bridge-info reports the switch", json.loads(request("GET", "/bridge-info")[2])["controlEnabled"] is True)
     status_code, headers, body = pump_while(lambda: command("status", {}))
     answer = json.loads(body)
     check("control on: status runs on the main thread", status_code == 200 and answer["ok"]
-          and answer["result"]["bridgeVersion"] == "0.5.0" and headers.get("Access-Control-Allow-Origin") == FRAMO, str(answer)[:200])
+          and answer["result"]["bridgeVersion"] == VERSION and headers.get("Access-Control-Allow-Origin") == FRAMO, str(answer)[:200])
     check("panel status line recorded", thread_safety.get_control_state_copy()["last_op"] == "status")
     check("wrong content type refused", request("POST", "/command", {"id": "x", "op": "status", "payload": {}},
                                                 headers={"Content-Type": "text/plain"})[0] == 415)

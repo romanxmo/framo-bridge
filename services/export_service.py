@@ -6,7 +6,7 @@ from ..processing import decimation, uv_unwrap, material_cleaner, material_analy
 from ..core.properties import update_export_status, clear_export_status
 from ..utils.context_managers import preserve_blender_state
 from ..utils.logging_config import get_logger
-from . import preview_server
+from . import live_link, preview_server
 
 # Get logger for this module
 log = get_logger()
@@ -22,6 +22,8 @@ class ExportService:
 
         # Get settings
         settings = context.scene.framo_export_settings
+        # Framo's editor is following live: export for speed, not size (services/live_link.py).
+        live = live_link.is_live()
         
         # Mark export as in progress
         settings.is_exporting = True
@@ -163,7 +165,7 @@ class ExportService:
                             info_parts.append(f"UV unwrapped {uv_stats['unwrapped']} objects")
                 
                 # 6. Decimation
-                if settings.enable_decimation and source_mesh_objects:
+                if settings.enable_decimation and not live and source_mesh_objects:
                     excluded_objects = [item.object_name for item in settings.decimate_exclude_objects if item.object_name]
                     individual_overrides = {item.object_name: item.override_ratio 
                                           for item in settings.decimate_individual_overrides}
@@ -301,7 +303,7 @@ class ExportService:
                     'export_texture_dir': '',
                 }
                 
-                if settings.use_draco:
+                if settings.use_draco and not live:
                     export_params.update({
                         'export_draco_mesh_compression_enable': True,
                         'export_draco_mesh_compression_level': settings.draco_compression_level,
@@ -312,7 +314,7 @@ class ExportService:
                     info_parts.append(f"Draco Level {settings.draco_compression_level}")
                 else:
                     export_params['export_draco_mesh_compression_enable'] = False
-                    info_parts.append("Uncompressed")
+                    info_parts.append("Live, uncompressed" if live else "Uncompressed")
                 
                 export_success = False
                 export_error = None
@@ -358,9 +360,10 @@ class ExportService:
                     "size_mb": f"{len(glb_data)/(1024*1024):.2f}",
                     "export_settings": {
                         "compression": settings.compression_preset,
-                        "draco_enabled": settings.use_draco,
+                        "draco_enabled": settings.use_draco and not live,
                     },
                     "object_count": len(original_selection),
+                    "live": live,
                 }
                 
                 if materials_to_analyze and material_analysis_results:

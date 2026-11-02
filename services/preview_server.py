@@ -6,7 +6,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import bpy
 
-from . import request_guard
+from . import live_link, request_guard
 from ..control import commands, render
 from ..control.ops import OPS, bridge_version
 from ..utils.logging_config import get_logger
@@ -109,6 +109,7 @@ class GLBRequestHandler(BaseHTTPRequestHandler):
             else:
                 self._respond(404, b'No model available')
         elif path == '/latest-model-info':
+            live_link.note_poll(self.path)
             if hasattr(self.server, 'latest_metadata'):
                 self._json(200, self.server.latest_metadata)
             else:

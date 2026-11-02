@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Framo Bridge",
     "author": "Roman Moor",
-    "version": (0, 5, 0),
+    "version": (0, 6, 0),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > Framo Bridge",
     "description": "Export optimized GLB models directly to web applications with Draco compression, mesh decimation, and native texture scaling (no dependencies required)",

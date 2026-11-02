@@ -36,6 +36,10 @@ def update_export_status(context, status_text):
     settings = context.scene.framo_export_settings
     settings.export_status = status_text
     
+    # Background Blender (scripts, the headless test) has no window to refresh.
+    if bpy.app.background or context.screen is None:
+        return
+
     # Force UI refresh
     for area in context.screen.areas:
         if area.type == 'VIEW_3D':

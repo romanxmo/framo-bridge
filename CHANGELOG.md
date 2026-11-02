@@ -5,6 +5,14 @@ All notable changes to Framo Bridge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-11-02
+
+### Added
+- **Faster sends while Framo's 3D editor is live.** With "Live from Blender" switched on in the editor, every send skips Draco compression and decimation, whatever the panel says. The editor reads the model straight from this computer, where even a 19 MB file arrives in milliseconds, so compressing it only made you wait: a 126k-face mesh now exports in 149 ms instead of 283 ms. Texture shrinking stays on, because a full-size 4K texture made the same send slower (1.0 s instead of 0.38 s). The editor marks its requests with `?live=1`; a send more than 3 seconds after its last one, or a send for the Upload window, is compressed exactly as before.
+
+### Fixed
+- Exporting from a script or background Blender no longer fails on the status message: it skips the window redraw there is no window for.
+
 ## [0.5.0] - 2026-11-02
 
 ### Security
