@@ -5,7 +5,7 @@ All notable changes to Framo Bridge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.5.0] - 2026-10-04
+## [0.5.0] - 2026-11-02
 
 ### Security
 - **The local server now answers only Framo.** Until now it told every browser that any website could read its answers, so any page you visited while Blender was open could download the last model you sent to Framo (`/latest-model`) and change which Framo user Blender showed as connected (`/connect-user`). Every route now checks who is asking before it does anything:
@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - The server handles requests in parallel, so a long command no longer holds up `/ping` or the model routes.
 - The panel redraw after Framo connects now happens on Blender's main thread instead of being scheduled from the server thread.
+- **Sending a model no longer goes through the network to Blender itself.** The exported model is handed to the server in memory. If the server is not running (port 8080 taken, often by a second Blender), the send now fails with that reason instead of reporting "Export complete" while Framo received nothing.
 
 ## [0.4.6] - 2025-11-29
 

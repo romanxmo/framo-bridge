@@ -1,8 +1,6 @@
 import bpy
 import os
-import json
 import tempfile
-import urllib.request
 from datetime import datetime
 from ..processing import decimation, uv_unwrap, material_cleaner, material_analyzer, texture_scaler, uv_atlas
 from ..core.properties import update_export_status, clear_export_status
@@ -375,25 +373,11 @@ class ExportService:
                 
                 update_export_status(context, "Uploading to Framo...")
                 
-                # Update server instance (for local fallback)
-                if preview_server.server_instance:
-                    preview_server.server_instance.latest_glb = glb_data
-                    preview_server.server_instance.latest_metadata = metadata
-
-                try:
-                    req = urllib.request.Request(
-                        'http://localhost:8080/upload-model',
-                        data=glb_data,
-                        headers={
-                            'Content-Type': 'application/octet-stream',
-                            'X-Model-Metadata': json.dumps(metadata)
-                        },
-                        method='POST'
-                    )
-                    with urllib.request.urlopen(req) as response:
-                        pass
-                except Exception as e:
-                    print(f"Failed to upload to server: {e}")
+                # Hand the bytes to the server in memory; Framo polls it from there.
+                if preview_server.server_instance is None:
+                    raise Exception("the Bridge server is not running (is port 8080 taken?)")
+                preview_server.server_instance.latest_glb = glb_data
+                preview_server.server_instance.latest_metadata = metadata
 
                 size_mb = len(glb_data) / (1024 * 1024)
                 info_str = f" ({', '.join(info_parts)})" if info_parts else ""
