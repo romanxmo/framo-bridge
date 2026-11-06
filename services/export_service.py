@@ -19,8 +19,6 @@ def gltf_params(filepath):
         'export_format': 'GLB',
         'export_apply': True,
         'export_extras': True,
-        'export_lights': True,
-        'export_cameras': True,
         'export_image_format': 'WEBP',
         'export_texture_dir': '',
     }

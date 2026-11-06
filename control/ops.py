@@ -21,6 +21,7 @@ import traceback
 import bpy
 
 from . import render, scene_builder
+from ..services import framo_import
 from .scene_builder import BuildError
 from .scene_spec import parse_scene_spec, scene_asset_ids
 from ..utils.constants import ADDON_VERSION
@@ -189,6 +190,10 @@ def _undo_push(message):
         print(f"Framo Bridge: undo step not recorded: {e}")
 
 
+def op_import_model(payload):
+    return framo_import.import_model(payload["path"])
+
+
 OPS = {
     "status": op_status,
     "get_scene": op_get_scene,
@@ -196,6 +201,7 @@ OPS = {
     "screenshot": op_screenshot,
     "render_start": op_render_start,
     "run_python": op_run_python,
+    "import_model": op_import_model,
 }
 
 # Seconds the HTTP request waits for Blender to finish the op.
@@ -207,4 +213,5 @@ OP_TIMEOUTS = {
     "build_scene": 90,
     "render_start": 10,
     "run_python": 100,
+    "import_model": 110,
 }

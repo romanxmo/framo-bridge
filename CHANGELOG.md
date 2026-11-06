@@ -5,6 +5,11 @@ All notable changes to Framo Bridge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-11-06
+
+### Added
+- **Send to Blender.** Framo can now send a model back: choose Send to Blender in the 3D Editor's scene menu, for the selection or the whole scene. An object that still has the same surface takes its new material on your original, keeping its mesh and modifiers, and its old material stays in the file. Anything else, such as a mesh changed in Framo, lands in a **From Framo** collection with its textures packed in. Sending again replaces what the last send left there, and Ctrl+Z takes it back.
+
 ## [0.7.1] - 2026-11-06
 
 ### Fixed
@@ -19,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Live from Blender is live.** Turn it on in Framo's 3D Editor and Blender sends every change by itself: moving, modelling, materials, modifiers, lights, cameras, posing, hiding, adding, deleting, undo. No button. A change arrives a fraction of a second after you finish it (a 130k-face mesh took 0.42 s). A drag or brush stroke goes out when you let go.
 - **The To Framo collection.** The add-on adds it to every file it opens. What is in it (nested collections too) is what goes to Framo, live and by the button; everything else stays in Blender. An object hidden in the viewport is not sent.
 - **Live sends leave you where you are.** They work in Edit Mode and Sculpt Mode without leaving them, and change no selection, no mesh and no undo history. Selecting, or changing anything outside the collection, sends nothing.
-- Lights and cameras in the collection now go to Framo.
+- Lights and cameras in the collection go to Framo's 3D Editor with live sends.
 
 ### Changed
 - **Send to Framo sends the To Framo collection, not the selection.** The button is off in Edit Mode.

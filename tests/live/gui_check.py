@@ -482,6 +482,7 @@ def scenario():
     with ui():
         check("the button is off with nothing in the collection", not bpy.ops.framo.export_to_web.poll())
     button = add_mesh("Button", bpy.ops.mesh.primitive_cube_add, to_framo)
+    to_framo.objects.link(bpy.data.objects.new("Button Lamp", bpy.data.lights.new("Button Lamp", "POINT")))
     with ui():
         bpy.ops.object.select_all(action="DESELECT")
         view_layer().objects.active = cone
@@ -490,7 +491,8 @@ def scenario():
         bpy.ops.framo.export_to_web()
     yield from wait(0.5)
     server = preview_server.server_instance
-    check("it sends the collection, not the selection", names(server.latest_glb) == ["Button"], names(server.latest_glb))
+    check("it sends the collection, not the selection", "Button" in names(server.latest_glb), names(server.latest_glb))
+    check("a model for the library carries no lamp", "Button Lamp" not in names(server.latest_glb), names(server.latest_glb))
     check("a send by hand is not marked live", server.latest_metadata["live"] is False)
     check("the selection comes back", cone.select_get(view_layer=view_layer()) and not button.select_get(view_layer=view_layer()))
     check("the active object comes back", view_layer().objects.active == cone)
@@ -499,6 +501,88 @@ def scenario():
         bpy.ops.object.mode_set(mode="EDIT")
         check("it is off in Edit Mode", not bpy.ops.framo.export_to_web.poll())
         bpy.ops.object.mode_set(mode="OBJECT")
+
+    print("\n== The way back", flush=True)
+
+    def send_back(glb):
+        conn = http.client.HTTPConnection("127.0.0.1", PORT, timeout=60)
+        conn.request("POST", "/import-model", body=glb, headers={"Origin": "https://framo.app", "Host": f"localhost:{PORT}", "Content-Type": "model/gltf-binary"})
+        res = conn.getresponse()
+        answer = json.loads(res.read())
+        conn.close()
+        return answer
+
+    def pending_answer(glb):
+        """POST on a thread, ticking meanwhile: the import runs on this main thread, from the queue."""
+        box = {}
+        thread = threading.Thread(target=lambda: box.update(answer=send_back(glb)), daemon=True)
+        thread.start()
+        while thread.is_alive():
+            yield
+        return box["answer"]
+
+    def export_of(obj):
+        out = os.path.join(PKG_ROOT, "back.glb")
+        keep = framo_collection.NAME
+        with ui():
+            for other in bpy.context.selected_objects:
+                other.select_set(False)
+            obj.select_set(True)
+            bpy.ops.export_scene.gltf(filepath=out, export_format="GLB", use_selection=True, export_apply=True, export_animations=False, export_image_format="AUTO")
+        assert keep
+        with open(out, "rb") as f:
+            return f.read()
+
+    with ui():
+        bpy.ops.object.select_all(action="DESELECT")
+    probe = add_mesh("Probe", bpy.ops.mesh.primitive_monkey_add, to_framo)
+    with ui():
+        view_layer().objects.active = probe
+        probe.select_set(True)
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.select_all(action="SELECT")
+        bpy.ops.uv.smart_project()
+        bpy.ops.object.mode_set(mode="OBJECT")
+    probe.modifiers.new("Sub", "SUBSURF").levels = 1
+    own = bpy.data.materials.new("Own")
+    probe.data.materials.append(own)
+    painted = bpy.data.materials.new("Painted")
+    painted.use_nodes = True
+    canvas = bpy.data.images.new("Canvas", 64, 64)
+    canvas.filepath_raw = os.path.join(PKG_ROOT, "canvas.png")
+    canvas.file_format = "PNG"
+    canvas.save()
+    canvas_node = painted.node_tree.nodes.new("ShaderNodeTexImage")
+    canvas_node.image = canvas
+    painted.node_tree.links.new(canvas_node.outputs[0], painted.node_tree.nodes["Principled BSDF"].inputs["Base Color"])
+
+    probe.material_slots[0].material = painted
+    same = export_of(probe)
+    probe.material_slots[0].material = own
+    objects_before = len(bpy.data.objects)
+    answer = yield from pending_answer(same)
+    check("a send back answers", answer.get("ok"), answer)
+    check("the same surface wears the new material", answer.get("result", {}).get("worn") == ["Probe"], answer)
+    check("no copy is left on top of it", len(bpy.data.objects) == objects_before and bpy.data.collections.get("From Framo") is None, [o.name for o in bpy.data.objects])
+    check("the original keeps its modifier", len(probe.modifiers) == 1)
+    check("it wears a texture now", any(n.type == "TEX_IMAGE" for n in probe.material_slots[0].material.node_tree.nodes))
+    check("its old material stays in the file", bpy.data.materials.get("Own") is not None and own.use_fake_user)
+
+    for v in probe.data.vertices:
+        v.co.z *= 2
+    changed = export_of(probe)
+    for v in probe.data.vertices:
+        v.co.z /= 2
+    probe.data.update()
+    worn_now = probe.material_slots[0].material
+    answer = yield from pending_answer(changed)
+    check("a changed mesh does not touch the original", probe.material_slots[0].material == worn_now and answer.get("result", {}).get("worn") == [], answer)
+    from_framo = bpy.data.collections.get("From Framo")
+    check("it lands as a copy in From Framo", from_framo is not None and len(from_framo.all_objects) == 1, answer)
+    answer = yield from pending_answer(changed)
+    check("sending again replaces it", len(bpy.data.collections["From Framo"].all_objects) == 1, answer)
+    bad = yield from pending_answer(b"glTF" + b"nonsense")
+    check("a broken file is refused with a reason", bad.get("ok") is False, bad)
 
     print("\n== Opening a file", flush=True)
     bpy.data.collections.remove(to_framo)

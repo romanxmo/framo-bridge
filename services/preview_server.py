@@ -1,6 +1,10 @@
 import json
+import os
 import re
+import shutil
+import tempfile
 import threading
+import uuid
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -25,6 +29,7 @@ server_thread = None
 PROTOCOL_VERSION = 1
 MAX_COMMAND_BYTES = 2 * 1024 * 1024
 MAX_SMALL_JSON_BYTES = 64 * 1024
+MAX_MODEL_BYTES = 1024 * 1024 * 1024
 
 _RENDER_ROUTE = re.compile(r"/render/([0-9a-f]{32})(/file)?")
 
@@ -197,6 +202,8 @@ class GLBRequestHandler(BaseHTTPRequestHandler):
 
         elif path == '/command':
             self._command()
+        elif path == '/import-model':
+            self._import_model()
         else:
             self._respond(404)
 
@@ -224,6 +231,24 @@ class GLBRequestHandler(BaseHTTPRequestHandler):
             return
         response = commands.submit(command["id"], command["op"], command["payload"])
         self._json(504 if response.get("error") == "timeout" else 200, response)
+
+    def _import_model(self):
+        """A model sent back from Framo. Imported on the main thread; this thread waits for the answer."""
+        body = self._read_body(MAX_MODEL_BYTES)
+        if body is None:
+            return
+        if body[:4] != b"glTF":
+            self._json(400, {"ok": False, "error": "the body is not a GLB"})
+            return
+        directory = tempfile.mkdtemp(prefix="framo_import_")
+        try:
+            path = os.path.join(directory, "from_framo.glb")
+            with open(path, "wb") as f:
+                f.write(body)
+            response = commands.submit(uuid.uuid4().hex, "import_model", {"path": path})
+            self._json(504 if response.get("error") == "timeout" else 200, response)
+        finally:
+            shutil.rmtree(directory, ignore_errors=True)
 
     def _render_route(self, job_id, wants_file):
         if wants_file:

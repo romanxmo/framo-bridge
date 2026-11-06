@@ -143,6 +143,10 @@ def submit(context, objects):
         'use_selection': False,
         'use_visible': True,
         'export_current_frame': True,
+        # The scene's lights and cameras belong in a scene. A send by the button becomes a model in
+        # the library, whose preview would light it with Blender's lamps at full strength.
+        'export_lights': True,
+        'export_cameras': True,
         # Baking animation costs a pass over every frame; Framo shows the frame Blender is on.
         'export_animations': False,
         # The pose lives in the mesh, not in a skin Framo would have to play.
