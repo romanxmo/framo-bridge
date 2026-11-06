@@ -3,6 +3,7 @@ from ..utils.thread_safety import get_update_state_copy, get_user_info_copy, saf
 from ..ui.icons import get_icon_id
 from ..utils.constants import ADDON_VERSION
 from ..processing import material_analyzer, texture_scaler
+from ..services import framo_collection, live_watch
 
 # Check availability of modules
 try:
@@ -96,6 +97,28 @@ class FRAMO_PT_export_panel(bpy.types.Panel):
         else:
             row.label(text="Disconnected", icon='UNLINKED')
 
+        # What goes to Framo
+        send_objects = framo_collection.visible_objects(context.view_layer)
+        collection_box = layout.box()
+        collection_box.label(text=f"Sends the {framo_collection.NAME} collection", icon='OUTLINER_COLLECTION')
+        col = collection_box.column(align=True)
+        col.scale_y = 0.8
+        if not framo_collection.in_scene(context.scene):
+            collection_box.operator("framo.create_collection", icon='COLLECTION_NEW')
+        else:
+            col.label(text=f"{len(send_objects)} visible object(s) in it")
+        live = live_watch.status()
+        if not live_watch.is_supported():
+            col.label(text="Live from Blender needs Blender 4.2 or newer", icon='INFO')
+        elif live["following"]:
+            col.label(text="Live: Framo follows your changes", icon='REC')
+            if live["error"]:
+                row = col.row()
+                row.alert = True
+                row.label(text=f"Last update failed: {live['error'][:60]}", icon='ERROR')
+        else:
+            col.label(text="Turn on Live from Blender in Framo to follow changes")
+
         # Framo control (session-only switch, off on every start)
         control = get_control_state_copy()
         control_box = layout.box()
@@ -148,7 +171,7 @@ class FRAMO_PT_export_panel(bpy.types.Panel):
         row.label(text="Export Settings:")
         row.operator("framo.reset_export_settings", text="", icon='FILE_REFRESH', emboss=False)
         main_box = layout.box()
-        main_box.enabled = len(context.selected_objects) > 0
+        main_box.enabled = len(send_objects) > 0
         
         # Compression preset
         compression_box = main_box.box()
@@ -463,7 +486,7 @@ class FRAMO_PT_export_panel(bpy.types.Panel):
         button_enabled = True
         user_connected = framo_user_info.get('name') is not None
         
-        if not user_connected or not context.selected_objects:
+        if not user_connected or not send_objects or context.mode != 'OBJECT':
             button_enabled = False
             
         if icon_id:
@@ -476,6 +499,8 @@ class FRAMO_PT_export_panel(bpy.types.Panel):
             warning_row.scale_y = 0.9
             if not user_connected:
                 warning_row.label(text="No user connected to framo.app", icon='INFO')
-            elif not context.selected_objects:
-                warning_row.label(text="Select at least one object to export", icon='ERROR')
+            elif not send_objects:
+                warning_row.label(text=f"Put objects in the {framo_collection.NAME} collection", icon='ERROR')
+            else:
+                warning_row.label(text="Leave Edit Mode to send by hand", icon='INFO')
 

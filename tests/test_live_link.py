@@ -43,5 +43,48 @@ class LivePoll(unittest.TestCase):
         self.assertFalse(live.is_live(now=100.0))
 
 
+class Pacing(unittest.TestCase):
+    def setUp(self):
+        self.pacer = live.SendPacer()
+
+    def test_nothing_is_due_without_a_change(self):
+        self.assertFalse(self.pacer.due(100.0))
+
+    def test_a_change_waits_for_quiet(self):
+        self.pacer.note_change(100.0)
+        self.assertFalse(self.pacer.due(100.0 + live.QUIET_S - 0.01))
+        self.assertTrue(self.pacer.due(100.0 + live.QUIET_S))
+
+    def test_a_burst_is_one_send(self):
+        for t in (100.0, 100.05, 100.1):
+            self.pacer.note_change(t)
+        self.assertFalse(self.pacer.due(100.1 + live.QUIET_S - 0.01))
+        self.assertTrue(self.pacer.due(100.1 + live.QUIET_S))
+        self.pacer.note_sent(100.3, 0.0)
+        self.assertFalse(self.pacer.pending)
+        self.assertFalse(self.pacer.due(101.0))
+
+    def test_a_stream_that_never_goes_quiet_still_sends(self):
+        t = 100.0
+        while t < 100.0 + live.MAX_HOLD_S:
+            self.pacer.note_change(t)
+            self.assertFalse(self.pacer.due(t))
+            t += 0.05
+        self.pacer.note_change(t)
+        self.assertTrue(self.pacer.due(t))
+
+    def test_a_slow_export_leaves_blender_as_much_time_again(self):
+        self.pacer.note_sent(100.0, 2.0)
+        self.pacer.note_change(100.1)
+        self.assertFalse(self.pacer.due(101.9))
+        self.assertTrue(self.pacer.due(102.0))
+
+    def test_a_change_after_a_send_is_pending_again(self):
+        self.pacer.note_change(100.0)
+        self.pacer.note_sent(100.2, 0.0)
+        self.pacer.note_change(100.3)
+        self.assertTrue(self.pacer.pending)
+
+
 if __name__ == "__main__":
     unittest.main()

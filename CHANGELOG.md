@@ -5,6 +5,19 @@ All notable changes to Framo Bridge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-11-06
+
+### Added
+- **Live from Blender is live.** Turn it on in Framo's 3D Editor and Blender sends every change by itself: moving, modelling, materials, modifiers, lights, cameras, posing, hiding, adding, deleting, undo. No button. A change arrives a fraction of a second after you finish it (a 130k-face mesh took 0.42 s). A drag or brush stroke goes out when you let go.
+- **The To Framo collection.** The add-on adds it to every file it opens. What is in it (nested collections too) is what goes to Framo, live and by the button; everything else stays in Blender. An object hidden in the viewport is not sent.
+- **Live sends leave you where you are.** They work in Edit Mode and Sculpt Mode without leaving them, and change no selection, no mesh and no undo history. Selecting, or changing anything outside the collection, sends nothing.
+- Lights and cameras in the collection now go to Framo.
+
+### Changed
+- **Send to Framo sends the To Framo collection, not the selection.** The button is off in Edit Mode.
+- Live sends skip the panel's heavy steps (decimation, automatic UVs, material cleaning, subdivision override): Framo gets what the viewport shows, at the current frame, without animation.
+- Change tracking needs Blender 4.2 or newer. The button works on older versions.
+
 ## [0.6.0] - 2026-11-02
 
 ### Added

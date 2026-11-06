@@ -4,7 +4,7 @@ import traceback
 from datetime import datetime
 from bpy.types import Operator
 from ..services.export_service import ExportService
-from ..services import update_service as updater
+from ..services import framo_collection, update_service as updater
 from ..utils.thread_safety import safe_update_state_access, safe_user_info_access, safe_material_states_access
 from ..utils.constants import ADDON_VERSION
 from ..processing import material_analyzer
@@ -50,17 +50,18 @@ def get_subdiv_objects_for_exclusion(self, context):
 class FRAMO_OT_export_to_web(Operator):
     bl_idname = "framo.export_to_web"
     bl_label = "Export to Web"
-    bl_description = "Export selected objects as GLB and send to Framo"
+    bl_description = "Export what is in the To Framo collection as GLB and send it to Framo"
     
     @classmethod
     def poll(cls, context):
         with safe_user_info_access() as user_info:
              if not user_info.get('name'):
                  return False
-        if not context.selected_objects:
+        # This export swaps mesh data, which an object in Edit Mode cannot take.
+        if context.mode != 'OBJECT':
             return False
-        return True
-    
+        return bool(framo_collection.visible_objects(context.view_layer))
+
     def execute(self, context):
         log.debug("FRAMO_OT_export_to_web.execute: Starting...")
         service = ExportService()
@@ -68,6 +69,16 @@ class FRAMO_OT_export_to_web(Operator):
         log.debug(f"FRAMO_OT_export_to_web.execute: Service returned {result}")
         log.debug("FRAMO_OT_export_to_web.execute: About to return to Blender...")
         return result
+
+class FRAMO_OT_create_collection(Operator):
+    bl_idname = "framo.create_collection"
+    bl_label = "Create To Framo Collection"
+    bl_description = "Add the To Framo collection to this scene. What you put in it is what goes to Framo"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        framo_collection.ensure(context.scene)
+        return {'FINISHED'}
 
 class FRAMO_OT_check_for_updates(Operator):
     """Check for Framo Bridge updates on GitHub"""

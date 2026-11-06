@@ -1,10 +1,10 @@
 bl_info = {
     "name": "Framo Bridge",
     "author": "Roman Moor",
-    "version": (0, 6, 0),
+    "version": (0, 7, 0),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > Framo Bridge",
-    "description": "Export optimized GLB models directly to web applications with Draco compression, mesh decimation, and native texture scaling (no dependencies required)",
+    "description": "Keep Framo in step with Blender: what is in the To Framo collection reaches Framo's 3D Editor as you work, or as an optimized GLB on demand",
     "category": "Import-Export",
     "doc_url": "https://github.com/r0m4nm/framo-bridge",
     "tracker_url": "https://github.com/r0m4nm/framo-bridge/issues",
@@ -14,7 +14,7 @@ bl_info = {
 import bpy
 from .core import properties, operators, dependencies
 from .ui import panels, icons
-from .services import preview_server, update_service
+from .services import live_watch, preview_server, update_service
 from .control import commands as control_commands
 from .utils import logging_config
 from .utils.thread_safety import set_control_enabled
@@ -30,6 +30,7 @@ classes = [
     properties.FramoExportSettings,
     
     operators.FRAMO_OT_export_to_web,
+    operators.FRAMO_OT_create_collection,
     operators.FRAMO_OT_reset_export_settings,
     operators.FRAMO_OT_analyze_materials,
     operators.FRAMO_OT_toggle_material_expanded,
@@ -91,11 +92,16 @@ def register():
 
     # Start server
     preview_server.start_server()
-    
+
+    # Send what changes while Framo's editor is following
+    live_watch.register()
+
     logger.info("Framo Bridge registered successfully")
     print("Framo Bridge registered")
 
 def unregister():
+    live_watch.unregister()
+
     # Stop server
     preview_server.stop_server()
 

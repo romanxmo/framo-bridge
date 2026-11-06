@@ -1,17 +1,182 @@
 import bpy
 import os
 import tempfile
+from contextlib import contextmanager
 from datetime import datetime
 from ..processing import decimation, uv_unwrap, material_cleaner, material_analyzer, texture_scaler, uv_atlas
 from ..core.properties import update_export_status, clear_export_status
 from ..utils.context_managers import preserve_blender_state
 from ..utils.logging_config import get_logger
-from . import live_link, preview_server
+from . import framo_collection, glb_names, live_link, preview_server
 
 # Get logger for this module
 log = get_logger()
 
+_STAND_IN_COLLECTION = "Framo Live Stand-ins"
+
+
+def _gltf_params(filepath):
+    """What every send asks the exporter for."""
+    return {
+        'filepath': filepath,
+        'export_format': 'GLB',
+        'export_apply': True,
+        'export_extras': True,
+        'export_lights': True,
+        'export_cameras': True,
+        'export_image_format': 'WEBP',
+        'export_texture_dir': '',
+    }
+
+
+def _export_gltf(params, report_callback):
+    """Run the exporter, falling back through the image formats a texture may refuse."""
+    try:
+        bpy.ops.export_scene.gltf(**params)
+        return
+    except Exception as e:
+        print(f"Export failed with WEBP image format: {e}")
+    try:
+        params['export_image_format'] = 'AUTO'
+        bpy.ops.export_scene.gltf(**params)
+        report_callback({'WARNING'}, "Some textures couldn't convert to WebP - exported with AUTO format")
+        return
+    except Exception as e:
+        print(f"Export also failed with AUTO format: {e}")
+    try:
+        params['export_image_format'] = 'NONE'
+        bpy.ops.export_scene.gltf(**params)
+        report_callback({'WARNING'}, "Export completed with original texture formats (conversion failed)")
+    except Exception as e:
+        print(f"Export also failed with NONE format: {e}")
+        raise Exception(f"GLB export failed: {e}")
+
+
+def _read_export(path):
+    with open(path, 'rb') as f:
+        glb_data = f.read()
+    os.unlink(path)
+    return glb_data
+
+
+def _publish(context, glb_data, object_count, live, draco_enabled, extra=None):
+    """Hand the bytes to the server in memory; Framo polls them from there."""
+    settings = context.scene.framo_export_settings
+    if preview_server.server_instance is None:
+        raise Exception("the Bridge server is not running (is port 8080 taken?)")
+    blend_filepath = bpy.data.filepath
+    filename = (os.path.splitext(os.path.basename(blend_filepath))[0] + ".glb") if blend_filepath else "untitled.glb"
+    metadata = {
+        "filename": filename,
+        "scene_name": context.scene.name,
+        "timestamp": datetime.now().isoformat(),
+        "size": len(glb_data),
+        "size_mb": f"{len(glb_data)/(1024*1024):.2f}",
+        "export_settings": {
+            "compression": settings.compression_preset,
+            "draco_enabled": draco_enabled,
+        },
+        "object_count": object_count,
+        "live": live,
+        **(extra or {}),
+    }
+    preview_server.server_instance.latest_glb = glb_data
+    preview_server.server_instance.latest_metadata = metadata
+
+
+@contextmanager
+def _export_source(context, objects):
+    """The collection to export, and the names to put right afterwards.
+
+    Normally that is "To Framo" itself. An object in Edit Mode cannot be
+    exported as it stands: its evaluated mesh is the edit mesh, which the
+    exporter cannot read (its UV layers come back empty). So it goes through a
+    stand-in: a throwaway copy holding the edit, in a throwaway collection,
+    gone before this returns.
+    """
+    if all(obj.mode == 'OBJECT' for obj in objects):
+        yield framo_collection.NAME, {}
+        return
+
+    stand_ins = {}
+    copied_data = []
+    collection = bpy.data.collections.new(_STAND_IN_COLLECTION)
+    context.scene.collection.children.link(collection)
+    try:
+        for obj in objects:
+            if obj.mode == 'OBJECT':
+                collection.objects.link(obj)
+                continue
+            obj.update_from_editmode()
+            copy = obj.copy()
+            copy.data = obj.data.copy()
+            copied_data.append(copy.data)
+            collection.objects.link(copy)
+            stand_ins[copy.name] = obj.name
+        yield collection.name, stand_ins
+    finally:
+        for name in stand_ins:
+            bpy.data.objects.remove(bpy.data.objects[name], do_unlink=True)
+        bpy.data.batch_remove(copied_data)
+        bpy.data.collections.remove(collection)
+
+
 class ExportService:
+    def export_live(self, context, objects):
+        """Send ``objects`` for Framo's live editor, from a timer, with no button pressed.
+
+        This runs while the person works, so it leaves everything as it found
+        it: their mode, their selection, their meshes. That is why the panel's
+        heavy steps are not here: nothing is decimated, unwrapped or cleaned,
+        because each of those swaps mesh data on the person's own objects.
+        Framo gets what the viewport shows, modifiers applied, at the current
+        frame.
+
+        Raises on failure; services/live_watch.py reports it.
+        """
+        settings = context.scene.framo_export_settings
+        report = lambda _type, message: log.warning(message)
+        scaled_copies = {}
+
+        with tempfile.NamedTemporaryFile(suffix='.glb', delete=False) as tmp_file:
+            tmp_path = tmp_file.name
+
+        # The texture scaler reads the objects it works on from the context's selection.
+        with bpy.context.temp_override(selected_objects=objects):
+            try:
+                if settings.enable_texture_optimization:
+                    scaled_copies = texture_scaler.process_textures_native(
+                        bpy.context,
+                        scale_to_target=True,
+                        compress=False,
+                        target_size=int(settings.texture_max_size),
+                        excluded_materials=[item.material_name for item in settings.texture_exclude_materials if item.material_name],
+                    ).get('processed_images', {})
+
+                with _export_source(context, objects) as (source, stand_ins):
+                    params = _gltf_params(tmp_path)
+                    params.update({
+                        'collection': source,
+                        'use_selection': False,
+                        'use_visible': True,
+                        'export_current_frame': True,
+                        # Baking animation costs a pass over every frame; Framo shows the frame Blender is on.
+                        'export_animations': False,
+                        # The pose lives in the mesh, not in a skin Framo would have to play.
+                        'export_skins': False,
+                        'export_draco_mesh_compression_enable': False,
+                    })
+                    # The exporter forces the active object into Object Mode; with none it leaves every mode alone.
+                    with bpy.context.temp_override(active_object=None):
+                        _export_gltf(params, report)
+                    glb_data = glb_names.rename_nodes(_read_export(tmp_path), stand_ins)
+            finally:
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+                texture_scaler.restore_scaled_textures(bpy.context, scaled_copies)
+
+        _publish(context, glb_data, len(objects), True, False)
+
     def export_to_web(self, context, report_callback=None):
         """
         Main export logic.
@@ -36,16 +201,22 @@ class ExportService:
         texture_scaled_copies = {}  # Track scaled copies for cleanup
         data_swap_map = {}  # Map obj -> (original_data, original_slots, temp_data)
         
-        # Store original selection to restore later
-        original_selection = [obj for obj in context.selected_objects] if context.selected_objects else []
+        # What goes to Framo is what is in the collection, whatever is selected.
+        send_objects = framo_collection.visible_objects(context.view_layer)
 
         try:
             with preserve_blender_state():
                 info_parts = []
-                
+
+                # The steps below read their objects from the selection, which is restored afterwards.
+                for obj in list(context.selected_objects):
+                    obj.select_set(False)
+                for obj in send_objects:
+                    obj.select_set(True)
+
                 # 1. Identify Source Objects (Recursive)
-                initial_objects = original_selection
-                
+                initial_objects = send_objects
+
                 processed_objects = set()
                 source_mesh_objects = []
                 non_mesh_objects = []
@@ -70,7 +241,7 @@ class ExportService:
                 
                 collect_recursive(initial_objects)
                 
-                non_mesh_objects = [obj for obj in original_selection if obj.type != 'MESH']
+                non_mesh_objects = [obj for obj in send_objects if obj.type != 'MESH']
                 
                 # 2. Apply Subdivision Override
                 if settings.enable_subdiv_override:
@@ -277,11 +448,11 @@ class ExportService:
                 with tempfile.NamedTemporaryFile(suffix='.glb', delete=False) as tmp_file:
                     tmp_path = tmp_file.name
                 
-                # Select appropriate objects - REVERTED to original selection
+                # Select appropriate objects
                 # This ensures that collection instances (which point to modified data) are exported with their transforms
                 bpy.ops.object.select_all(action='DESELECT')
                 
-                for obj in original_selection:
+                for obj in send_objects:
                     # Skip objects that are sources for instances (to avoid duplication)
                     if obj in instance_sources:
                         continue
@@ -293,15 +464,8 @@ class ExportService:
                 if context.selected_objects:
                     context.view_layer.objects.active = context.selected_objects[0]
 
-                export_params = {
-                    'filepath': tmp_path,
-                    'export_format': 'GLB',
-                    'use_selection': True,
-                    'export_apply': True,
-                    'export_extras': True,
-                    'export_image_format': 'WEBP',
-                    'export_texture_dir': '',
-                }
+                export_params = _gltf_params(tmp_path)
+                export_params['use_selection'] = True
                 
                 if settings.use_draco and not live:
                     export_params.update({
@@ -316,58 +480,12 @@ class ExportService:
                     export_params['export_draco_mesh_compression_enable'] = False
                     info_parts.append("Live, uncompressed" if live else "Uncompressed")
                 
-                export_success = False
-                export_error = None
+                _export_gltf(export_params, report_callback)
+                glb_data = _read_export(tmp_path)
                 
-                try:
-                    bpy.ops.export_scene.gltf(**export_params)
-                    export_success = True
-                except Exception as e:
-                    export_error = str(e)
-                    print(f"Export failed with WEBP image format: {e}")
-                    try:
-                        export_params['export_image_format'] = 'AUTO'
-                        bpy.ops.export_scene.gltf(**export_params)
-                        export_success = True
-                        report_callback({'WARNING'}, "Some textures couldn't convert to WebP - exported with AUTO format")
-                    except Exception as e2:
-                        print(f"Export also failed with AUTO format: {e2}")
-                        try:
-                            export_params['export_image_format'] = 'NONE'
-                            bpy.ops.export_scene.gltf(**export_params)
-                            export_success = True
-                            report_callback({'WARNING'}, "Export completed with original texture formats (conversion failed)")
-                        except Exception as e3:
-                            export_error = str(e3)
-                            print(f"Export also failed with NONE format: {e3}")
-                
-                if not export_success:
-                    raise Exception(f"GLB export failed: {export_error}")
-                
-                with open(tmp_path, 'rb') as f:
-                    glb_data = f.read()
-                
-                os.unlink(tmp_path)
-                
-                blend_filepath = bpy.data.filepath
-                filename = (os.path.splitext(os.path.basename(blend_filepath))[0] + ".glb") if blend_filepath else "untitled.glb"
-                
-                metadata = {
-                    "filename": filename,
-                    "scene_name": context.scene.name,
-                    "timestamp": datetime.now().isoformat(),
-                    "size": len(glb_data),
-                    "size_mb": f"{len(glb_data)/(1024*1024):.2f}",
-                    "export_settings": {
-                        "compression": settings.compression_preset,
-                        "draco_enabled": settings.use_draco and not live,
-                    },
-                    "object_count": len(original_selection),
-                    "live": live,
-                }
-                
+                extra_metadata = {}
                 if materials_to_analyze and material_analysis_results:
-                    metadata["materials"] = {
+                    extra_metadata["materials"] = {
                         "total": len(materials_to_analyze),
                         "ready": len([m for m in materials_to_analyze if material_analysis_results[m.name]['is_ready']]),
                         "unsupported": [],
@@ -376,11 +494,7 @@ class ExportService:
                 
                 update_export_status(context, "Uploading to Framo...")
                 
-                # Hand the bytes to the server in memory; Framo polls it from there.
-                if preview_server.server_instance is None:
-                    raise Exception("the Bridge server is not running (is port 8080 taken?)")
-                preview_server.server_instance.latest_glb = glb_data
-                preview_server.server_instance.latest_metadata = metadata
+                _publish(context, glb_data, len(send_objects), live, settings.use_draco and not live, extra_metadata)
 
                 size_mb = len(glb_data) / (1024 * 1024)
                 info_str = f" ({', '.join(info_parts)})" if info_parts else ""
@@ -424,24 +538,7 @@ class ExportService:
                 # Restore textures - use names to avoid stale references
                 if texture_scaled_copies:
                     log.debug(f"Restoring {len(texture_scaled_copies)} textures...")
-                    texture_restore_list = []
-                    for original_img, scaled_copy in texture_scaled_copies.items():
-                        try:
-                            if original_img and scaled_copy:
-                                texture_restore_list.append((original_img.name, scaled_copy.name))
-                        except Exception:
-                            pass
-
-                    for orig_name, scaled_name in texture_restore_list:
-                        try:
-                            if orig_name in bpy.data.images and scaled_name in bpy.data.images:
-                                original_img = bpy.data.images[orig_name]
-                                scaled_copy = bpy.data.images[scaled_name]
-                                texture_scaler.replace_image_in_materials(context, scaled_copy, original_img)
-                                if scaled_name in bpy.data.images:
-                                    bpy.data.images.remove(bpy.data.images[scaled_name])
-                        except Exception:
-                            pass
+                    texture_scaler.restore_scaled_textures(context, texture_scaled_copies)
 
                 log.debug("Texture cleanup done")
 

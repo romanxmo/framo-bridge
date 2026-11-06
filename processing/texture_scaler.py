@@ -534,6 +534,32 @@ def process_textures_native(
     return result
 
 
+def restore_scaled_textures(context: bpy.types.Context, scaled_copies: Dict) -> None:
+    """Put the original images back after an export and remove the scaled copies.
+
+    Works by name: the references in ``scaled_copies`` may have gone stale.
+    ``context`` must hold the objects the copies were made for.
+    """
+    restore_list = []
+    for original_img, scaled_copy in scaled_copies.items():
+        try:
+            if original_img and scaled_copy:
+                restore_list.append((original_img.name, scaled_copy.name))
+        except Exception:
+            pass
+
+    for orig_name, scaled_name in restore_list:
+        try:
+            if orig_name in bpy.data.images and scaled_name in bpy.data.images:
+                original_img = bpy.data.images[orig_name]
+                scaled_copy = bpy.data.images[scaled_name]
+                replace_image_in_materials(context, scaled_copy, original_img)
+                if scaled_name in bpy.data.images:
+                    bpy.data.images.remove(bpy.data.images[scaled_name])
+        except Exception:
+            pass
+
+
 def analyze_textures_native(context: bpy.types.Context, excluded_materials: Optional[List[str]] = None) -> Dict[str, any]:
     """
     Analyze all textures from selected objects' materials.

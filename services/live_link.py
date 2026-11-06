@@ -1,8 +1,9 @@
-"""Whether Framo's 3D editor is following Blender live.
+"""Whether Framo's 3D editor is following Blender live, and when to send.
 
 While "Live from Blender" is on, the editor asks for the latest model's
-description every half second with ``?live=1`` on the URL. A send made while
-those polls keep arriving skips Draco and decimation. The editor reads the
+description several times a second with ``?live=1`` on the URL. Those polls
+switch change tracking on (services/live_watch.py), and a send made while they
+keep arriving skips Draco and decimation. The editor reads the
 model over loopback, where a 19 MB file moves in milliseconds, so compressing
 it only adds wait: Draco took a 126k-face mesh from 149 ms to 283 ms. Texture
 shrinking stays on, because it makes the export faster rather than slower: a
@@ -16,10 +17,17 @@ import threading
 import time
 from urllib.parse import parse_qs, urlsplit
 
-# The editor polls every 0.5 s, and every 2 s while Blender is unreachable. A
-# send more than this long after the last poll is not live: the editor's
-# switch went off, or its tab closed.
+# The editor polls several times a second, and every 2 s while Blender is
+# unreachable. A send more than this long after the last poll is not live: the
+# editor's switch went off, or its tab closed.
 LIVE_WINDOW_S = 3.0
+
+# A change is sent once nothing else has changed for this long, so a burst of
+# edits costs one export.
+QUIET_S = 0.15
+# A stream that never goes quiet (the timeline playing, a script) still reaches
+# Framo this often.
+MAX_HOLD_S = 1.0
 
 _lock = threading.Lock()
 _last_live_poll = None
@@ -47,6 +55,43 @@ def is_live(now=None):
         return False
     now = time.monotonic() if now is None else now
     return 0 <= now - last <= LIVE_WINDOW_S
+
+
+class SendPacer:
+    """When a tracked change should go out.
+
+    An export runs on Blender's main thread, so it holds the interface still
+    for as long as it takes. The next one waits at least that long again:
+    however heavy the scene, the person keeps at least half of Blender's time.
+    """
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self._first_change = None
+        self._last_change = None
+        self._earliest = 0.0
+
+    @property
+    def pending(self):
+        return self._first_change is not None
+
+    def note_change(self, now):
+        if self._first_change is None:
+            self._first_change = now
+        self._last_change = now
+
+    def due(self, now):
+        if self._first_change is None or now < self._earliest:
+            return False
+        return now - self._last_change >= QUIET_S or now - self._first_change >= MAX_HOLD_S
+
+    def note_sent(self, now, took):
+        """A send finished at ``now`` after ``took`` seconds; what it covered is no longer pending."""
+        self._first_change = None
+        self._last_change = None
+        self._earliest = now + took
 
 
 def reset():

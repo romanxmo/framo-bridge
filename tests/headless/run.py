@@ -537,7 +537,7 @@ try:
           and thread_safety.get_user_info_copy()["name"] is None)
 
     section("send for the live editor")
-    from framo_bridge.services import export_service, live_link
+    from framo_bridge.services import export_service, framo_collection, live_link
 
     def send_cube():
         for o in list(bpy.data.objects):
@@ -545,6 +545,9 @@ try:
         bpy.ops.mesh.primitive_cube_add()
         bpy.context.active_object.select_set(True)
         started = time.perf_counter()
+        collection = framo_collection.ensure(bpy.context.scene)
+        if bpy.context.active_object.name not in collection.objects:
+            collection.objects.link(bpy.context.active_object)
         result = export_service.ExportService().export_to_web(bpy.context, lambda t, m: None)
         elapsed = time.perf_counter() - started
         meta = preview_server.server_instance.latest_metadata
