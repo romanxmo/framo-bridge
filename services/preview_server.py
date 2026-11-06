@@ -132,6 +132,8 @@ class GLBRequestHandler(BaseHTTPRequestHandler):
             with safe_user_info_access() as user_info:
                 body = json.dumps(user_info).encode()
             self._respond(200, body, 'application/json')
+        elif path == '/shader-graphs':
+            self._main_thread("shader_graphs", {})
         elif path == '/bridge-info':
             self._json(200, {
                 "protocol": PROTOCOL_VERSION,
@@ -237,7 +239,11 @@ class GLBRequestHandler(BaseHTTPRequestHandler):
         if problem:
             self._json(400, {"ok": False, "error": problem})
             return
-        response = commands.submit(command["id"], command["op"], command["payload"])
+        self._main_thread(command["op"], command["payload"], command["id"])
+
+    def _main_thread(self, op, payload, command_id=None):
+        """Run `op` on Blender's main thread; this thread waits for the answer."""
+        response = commands.submit(command_id or uuid.uuid4().hex, op, payload)
         self._json(504 if response.get("error") == "timeout" else 200, response)
 
     def _import_model(self):
@@ -253,8 +259,7 @@ class GLBRequestHandler(BaseHTTPRequestHandler):
             path = os.path.join(directory, "from_framo.glb")
             with open(path, "wb") as f:
                 f.write(body)
-            response = commands.submit(uuid.uuid4().hex, "import_model", {"path": path})
-            self._json(504 if response.get("error") == "timeout" else 200, response)
+            self._main_thread("import_model", {"path": path})
         finally:
             shutil.rmtree(directory, ignore_errors=True)
 

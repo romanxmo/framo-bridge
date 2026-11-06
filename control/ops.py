@@ -21,7 +21,7 @@ import traceback
 import bpy
 
 from . import render, scene_builder
-from ..services import framo_import
+from ..services import framo_import, shader_graphs
 from .scene_builder import BuildError
 from .scene_spec import parse_scene_spec, scene_asset_ids
 from ..utils.constants import ADDON_VERSION
@@ -194,6 +194,10 @@ def op_import_model(payload):
     return framo_import.import_model(payload["path"])
 
 
+def op_shader_graphs(_payload):
+    return shader_graphs.shader_graphs()
+
+
 OPS = {
     "status": op_status,
     "get_scene": op_get_scene,
@@ -202,6 +206,7 @@ OPS = {
     "render_start": op_render_start,
     "run_python": op_run_python,
     "import_model": op_import_model,
+    "shader_graphs": op_shader_graphs,
 }
 
 # Seconds the HTTP request waits for Blender to finish the op.
@@ -214,4 +219,6 @@ OP_TIMEOUTS = {
     "render_start": 10,
     "run_python": 100,
     "import_model": 110,
+    # Sampling every ramp in a file with hundreds of materials takes a moment.
+    "shader_graphs": 60,
 }

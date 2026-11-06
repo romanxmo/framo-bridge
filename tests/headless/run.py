@@ -536,6 +536,24 @@ try:
     check("disconnect-user from Framo", request("POST", "/disconnect-user")[0] == 200
           and thread_safety.get_user_info_copy()["name"] is None)
 
+    section("HTTP: shader graphs")
+    shader = bpy.data.materials.new("Framo test shader")
+    if hasattr(shader, "use_nodes"):
+        shader.use_nodes = True
+    ramp = shader.node_tree.nodes.new("ShaderNodeValToRGB")
+    endless = shader.node_tree.nodes.new("ShaderNodeMath")
+    endless.inputs[0].default_value = float("nan")
+    code, headers, body = pump_while(lambda: request("GET", "/shader-graphs"))
+    answer = json.loads(body, parse_constant=lambda name: (_ for _ in ()).throw(ValueError(name)))
+    check("Framo reads the open file's shaders", code == 200 and answer["ok"]
+          and headers.get("Access-Control-Allow-Origin") == FRAMO, str(body[:200]))
+    nodes = {n["name"]: n for n in answer["result"]["m"]["Framo test shader"]["nodes"]}
+    check("a ramp arrives as a 256-entry table", len(nodes[ramp.name]["ramp"]["lut"]) == 256)
+    check("a value JSON cannot hold arrives as null", nodes[endless.name]["ins"]["Value"]["v"] is None)
+    check("shaders refused to a foreign origin", request("GET", "/shader-graphs", origin="https://evil.example")[0] == 403)
+    check("shaders refused without an Origin", request("GET", "/shader-graphs", origin=None)[0] == 403)
+    bpy.data.materials.remove(shader)
+
     section("send for the live editor")
     from framo_bridge.services import export_service, framo_collection, live_link
 

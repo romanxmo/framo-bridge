@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Framo Bridge",
     "author": "Roman Moor",
-    "version": (0, 10, 0),
+    "version": (0, 11, 0),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > Framo Bridge",
     "description": "Keep Framo in step with Blender: what is in the To Framo collection reaches Framo's 3D Editor as you work, or as an optimized GLB on demand",
