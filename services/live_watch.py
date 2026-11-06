@@ -12,6 +12,12 @@ What must stay true:
   out of Edit Mode, changes no selection and adds no undo step, and waits while
   a drag, a brush stroke or a render is running, so what Framo receives is a
   finished action.
+- A move does not cost an export. Where things stand is published as a table
+  (``live_link.publish_moves``), which is cheap enough to do during a drag, so
+  Framo follows the hand. Only a true move qualifies: anything that also changes
+  geometry, and lights and cameras, whose nodes the exporter turns, take the
+  whole-model path. Every whole model publishes the table too, which is what
+  keeps a move made while one was exporting from being undone when it lands.
 - Only what affects the send counts. Selecting, or moving anything outside the
   collection, sends nothing. Which update means what was measured, not assumed:
   selecting and hiding tag only the Scene; a move tags the Object's transform;
@@ -26,6 +32,7 @@ import traceback
 
 import bpy
 from bpy.app.handlers import persistent
+from mathutils import Matrix
 
 from . import framo_collection, live_link, live_worker
 from ..control.commands import main_window_context
@@ -35,6 +42,13 @@ from ..utils.thread_safety import request_redraw
 log = get_logger()
 
 TICK_S = 0.05
+
+# Blender's Z-up to glTF's Y-up, the turn the exporter gives everything it writes.
+_TO_GLTF = Matrix(((1, 0, 0, 0), (0, 0, 1, 0), (0, -1, 0, 0), (0, 0, 0, 1)))
+_FROM_GLTF = _TO_GLTF.inverted()
+
+# What a depsgraph update comes to.
+_NOTHING, _MOVED, _WHOLE_MODEL = range(3)
 
 # The exporter's `collection` option, which is how a live send picks its objects.
 MIN_BLENDER = (4, 2, 0)
@@ -57,6 +71,9 @@ _sent_something = False
 _object_names = set()
 _material_names = set()
 _contents = ()
+# Objects Framo holds one node for, placed by a move: not what an instance shows, not a light or a camera.
+_movable_names = set()
+_moved = False
 _status = {"objects": 0, "error": None}
 
 
@@ -71,27 +88,49 @@ def status():
 
 def _refresh_contents(view_layer):
     """Re-read the collection; True when what it holds is different."""
-    global _object_names, _material_names, _contents
+    global _object_names, _material_names, _contents, _movable_names
     objects = framo_collection.visible_objects(view_layer)
     contents = tuple(obj.name_full for obj in objects)
     _object_names, _material_names = framo_collection.watched_names(objects)
+    _movable_names = {obj.name_full for obj in objects if obj.type not in ('LIGHT', 'CAMERA')}
     changed = contents != _contents
     _contents = contents
     return changed
 
 
+def _gltf_matrix(obj):
+    """Where `obj` stands, in glTF's axes, column by column, as a glTF matrix is written."""
+    m = _TO_GLTF @ obj.matrix_world @ _FROM_GLTF
+    return [round(m[row][column], 6) for column in range(4) for row in range(4)]
+
+
+def _publish_moves():
+    objects = {}
+    for name in _movable_names:
+        obj = bpy.data.objects.get(name)
+        if obj is not None:
+            objects[name] = _gltf_matrix(obj)
+    live_link.publish_moves(objects)
+
+
 def _update_matters(depsgraph):
-    """Whether this depsgraph update changes what a send would carry."""
+    """What this depsgraph update comes to for a send."""
     shading = False
     material = False
     structure = False
+    moved = False
+    takes_moves = live_link.takes_moves()
     for update in depsgraph.updates:
         data = update.id.original
         if isinstance(data, bpy.types.Object):
             flagged = update.is_updated_transform or update.is_updated_geometry or update.is_updated_shading
             if data.name_full in _object_names:
-                if update.is_updated_transform or update.is_updated_geometry:
-                    return True
+                if update.is_updated_geometry:
+                    return _WHOLE_MODEL
+                if update.is_updated_transform:
+                    if not takes_moves or data.name_full not in _movable_names:
+                        return _WHOLE_MODEL
+                    moved = True
                 shading = shading or update.is_updated_shading
             # An update with no flag at all is a rename, which leaves the old name in the watched set.
             structure = structure or not flagged
@@ -100,17 +139,23 @@ def _update_matters(depsgraph):
         elif isinstance(data, (bpy.types.Scene, bpy.types.Collection)):
             structure = True
     if shading and material:
-        return True
-    return structure and _refresh_contents(depsgraph.view_layer)
+        return _WHOLE_MODEL
+    if structure and _refresh_contents(depsgraph.view_layer):
+        return _WHOLE_MODEL
+    return _MOVED if moved else _NOTHING
 
 
 @persistent
 def _on_depsgraph_update(_scene, depsgraph):
+    global _moved
     if not _following or _sending:
         return
     try:
-        if _update_matters(depsgraph):
+        matters = _update_matters(depsgraph)
+        if matters == _WHOLE_MODEL:
             _pacer.note_change(time.monotonic())
+        elif matters == _MOVED:
+            _moved = True
     except Exception:
         traceback.print_exc()
 
@@ -167,6 +212,7 @@ def _send():
             if obj is not None and obj.mode != 'OBJECT':
                 obj.update_from_editmode()
         live_worker.submit(context, objects)
+        _publish_moves()
         _sent_something = bool(objects)
         _status.update(objects=len(objects), error=None)
     except Exception as e:
@@ -213,9 +259,14 @@ def step():
         if _following:
             _stop_following()
         return
+    global _moved
     with main_window_context():
         if not _following:
             _start_following()
+        # Not held for a drag or a running export: reading where things stand disturbs neither.
+        if _moved:
+            _moved = False
+            _publish_moves()
         error = live_worker.take_error()
         if error is not None:
             _status["error"] = error

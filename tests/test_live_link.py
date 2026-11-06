@@ -43,6 +43,33 @@ class LivePoll(unittest.TestCase):
         self.assertFalse(live.is_live(now=100.0))
 
 
+class Moves(unittest.TestCase):
+    def setUp(self):
+        live.reset()
+
+    def test_only_a_poll_that_says_so_takes_moves(self):
+        live.note_poll("/latest-model-info?live=1", now=100.0)
+        self.assertFalse(live.takes_moves())
+        live.note_poll("/latest-model-info?live=1&moves=1", now=100.0)
+        self.assertTrue(live.takes_moves())
+        live.note_poll("/latest-model-info?live=1", now=100.0)
+        self.assertFalse(live.takes_moves())
+
+    def test_the_number_moves_only_when_the_table_does(self):
+        start = live.moves_seq()
+        live.publish_moves({"Cube": [1.0] * 16})
+        moved = live.moves_seq()
+        self.assertEqual(moved, start + 1)
+        live.publish_moves({"Cube": [1.0] * 16})
+        self.assertEqual(live.moves_seq(), moved)
+        live.publish_moves({"Cube": [2.0] * 16})
+        self.assertEqual(live.moves_seq(), moved + 1)
+
+    def test_a_reader_gets_the_table_with_its_number(self):
+        live.publish_moves({"Cube": [1.0] * 16})
+        self.assertEqual(live.moves(), {"seq": live.moves_seq(), "objects": {"Cube": [1.0] * 16}})
+
+
 class Pacing(unittest.TestCase):
     def setUp(self):
         self.pacer = live.SendPacer()

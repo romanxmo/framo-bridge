@@ -26,6 +26,7 @@ import traceback
 
 import bmesh
 import bpy
+from mathutils import Matrix, Quaternion, Vector
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
@@ -66,8 +67,10 @@ class Editor(threading.Thread):
     def __init__(self):
         super().__init__(daemon=True)
         self.following = False
+        self.takes_moves = False
         self.landed = None
         self.sends = []
+        self.moves_seq = None
 
     def _get(self, path):
         conn = http.client.HTTPConnection("127.0.0.1", PORT, timeout=5)
@@ -83,10 +86,11 @@ class Editor(threading.Thread):
             if not self.following:
                 continue
             try:
-                status, body = self._get("/latest-model-info?live=1")
+                status, body = self._get("/latest-model-info?live=1" + ("&moves=1" if self.takes_moves else ""))
                 if status != 200:
                     continue
                 info = json.loads(body)
+                self.moves_seq = info["movesSeq"]
                 if info["timestamp"] != self.landed:
                     self.landed = info["timestamp"]
                     self.sends.append((time.monotonic(), info, self._get("/latest-model")[1]))
@@ -459,6 +463,89 @@ def scenario():
     check("Blender never froze for it", worst < 0.25, worst)
     bpy.data.objects.remove(heavy)
     yield from next_send(30)
+
+    print("\n== Moves", flush=True)
+    editor.takes_moves = True
+    mover = add_mesh("Mover", bpy.ops.mesh.primitive_cube_add, to_framo)
+    rider = add_mesh("Rider", bpy.ops.mesh.primitive_cube_add, to_framo, location=(0, 0, 3))
+    rider.parent = mover
+    yield from next_send()
+    yield from settle()
+
+    def moves_now():
+        return json.loads(editor._get("/live-moves")[1])
+
+    seen = len(editor.sends)
+    seq = moves_now()["seq"]
+    mover.location = (1, 2, 3)
+    yield from wait(0.5)
+    table = moves_now()
+    check("a move costs no export", len(editor.sends) == seen, len(editor.sends) - seen)
+    check("a move is published", table["seq"] > seq, table["seq"])
+    check("it lands in glTF's axes", table["objects"]["Mover"][12:15] == [1, 3, -2], table["objects"].get("Mover"))
+    check("a child moves with its parent", abs(table["objects"]["Rider"][13] - 6) < 1e-4, table["objects"].get("Rider"))
+    with ui():
+        mover.rotation_euler = (0, 0, 1.5708)
+        mover.scale = (2, 2, 2)
+    yield from wait(0.5)
+    check("turning and scaling cost no export either", len(editor.sends) == seen, len(editor.sends) - seen)
+    seq = moves_now()["seq"]
+    outside_again = bpy.data.objects["Cone"]
+    outside_again.location.x += 1
+    yield from wait(0.5)
+    check("moving something outside publishes nothing", moves_now()["seq"] == seq)
+
+    with ui():
+        bpy.ops.object.select_all(action="DESELECT")
+        view_layer().objects.active = mover
+        mover.select_set(True)
+        bpy.ops.transform.translate("INVOKE_DEFAULT")
+    yield from wait(0.1)
+    w = window()
+    during = moves_now()["seq"]
+    for x in range(420, 620, 40):
+        w.event_simulate(type="MOUSEMOVE", value="NOTHING", x=x, y=320)
+        yield from wait(0.12)
+    check("the drag is still running", "TRANSFORM_OT_translate" in [op.bl_idname for op in window().modal_operators])
+    check("a move follows the drag", moves_now()["seq"] >= during + 3, moves_now()["seq"] - during)
+    check("a drag costs no export", len(editor.sends) == seen, len(editor.sends) - seen)
+    w.event_simulate(type="RET", value="PRESS")
+    w.event_simulate(type="RET", value="RELEASE")
+    yield from wait(0.5)
+    check("letting go costs no export either", len(editor.sends) == seen, len(editor.sends) - seen)
+
+    lamp_two = bpy.data.objects.new("Lamp Two", bpy.data.lights.new("Lamp Two", "POINT"))
+    to_framo.objects.link(lamp_two)
+    yield from next_send()
+    seen = len(editor.sends)
+    lamp_two.location.x += 2
+    check("a light moves with a whole model", (yield from next_send()) is not None)
+    bpy.data.objects.remove(lamp_two)
+    yield from next_send()
+    mover.data.vertices[0].co.z += 1
+    mover.data.update()
+    whole = yield from next_send()
+    check("a mesh edit still sends the whole model", whole is not None)
+    written = node(whole, "Mover")
+    x, y, z, w_ = written["rotation"]
+    exported = Matrix.LocRotScale(Vector(written["translation"]), Quaternion((w_, x, y, z)), Vector(written["scale"]))
+    flat = [exported[row][column] for column in range(4) for row in range(4)]
+    published = moves_now()["objects"]["Mover"]
+    worst = max(abs(a - b) for a, b in zip(flat, published))
+    check("the table says exactly what the exporter writes", worst < 1e-3, (worst, flat, published))
+
+    # A move while a whole model is exporting must not be undone when it lands.
+    mat_two = bpy.data.materials.new("Slow")
+    mover.data.materials.append(mat_two)
+    yield from wait(0.3)
+    mover.location = (7, 0, 0)
+    yield from next_send()
+    check("the table still says where it went", moves_now()["objects"]["Mover"][12] == 7, moves_now()["objects"].get("Mover"))
+    for obj in (rider, mover):
+        bpy.data.objects.remove(obj)
+    yield from next_send()
+    editor.takes_moves = False
+    yield from wait(0.4)
 
     print("\n== Emptying", flush=True)
     for obj in list(to_framo.all_objects):

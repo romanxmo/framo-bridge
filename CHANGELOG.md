@@ -5,6 +5,11 @@ All notable changes to Framo Bridge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-11-06
+
+### Added
+- **Moves are instant.** Moving, turning or scaling an object no longer exports the model: Blender publishes where things stand, and Framo places them. It follows your hand during a drag, however heavy the scene, and scrubbing the timeline moves animated objects too. Anything else (a mesh edit, a material, a light or a camera) still sends the whole model. Needs Framo's current version; an older tab goes on receiving whole models.
+
 ## [0.8.0] - 2026-11-06
 
 ### Added

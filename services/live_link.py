@@ -31,6 +31,11 @@ MAX_HOLD_S = 1.0
 
 _lock = threading.Lock()
 _last_live_poll = None
+# Whether the last live poll said it can take moves on their own (``moves=1``).
+_takes_moves = False
+# Where everything stands, and a number that changes when it does (see publish_moves).
+_moves = {}
+_moves_seq = 0
 
 
 def is_live_poll(raw_path):
@@ -40,11 +45,44 @@ def is_live_poll(raw_path):
 
 def note_poll(raw_path, now=None):
     """Record a poll from the live editor; any other request is ignored."""
-    global _last_live_poll
+    global _last_live_poll, _takes_moves
     if not is_live_poll(raw_path):
         return
+    takes_moves = parse_qs(urlsplit(raw_path).query).get("moves") == ["1"]
     with _lock:
         _last_live_poll = time.monotonic() if now is None else now
+        _takes_moves = takes_moves
+
+
+def takes_moves():
+    """True when the live editor can apply moves; an older one only reads whole models."""
+    with _lock:
+        return _takes_moves
+
+
+def publish_moves(objects):
+    """Say where everything stands: object name to its 16-number matrix.
+
+    The whole table every time, never a list of changes, so a reader can apply
+    it twice, or after a whole model that was exported a moment earlier, and end
+    up right. The number moves only when the table does.
+    """
+    global _moves, _moves_seq
+    with _lock:
+        if objects != _moves:
+            _moves = objects
+            _moves_seq += 1
+
+
+def moves_seq():
+    with _lock:
+        return _moves_seq
+
+
+def moves():
+    """The table and its number, as the route answers them."""
+    with _lock:
+        return {"seq": _moves_seq, "objects": _moves}
 
 
 def is_live(now=None):
@@ -96,6 +134,8 @@ class SendPacer:
 
 def reset():
     """Forget every poll (tests, and the server stopping)."""
-    global _last_live_poll
+    global _last_live_poll, _takes_moves, _moves
     with _lock:
         _last_live_poll = None
+        _takes_moves = False
+        _moves = {}

@@ -116,9 +116,11 @@ class GLBRequestHandler(BaseHTTPRequestHandler):
         elif path == '/latest-model-info':
             live_link.note_poll(self.path)
             if hasattr(self.server, 'latest_metadata'):
-                self._json(200, self.server.latest_metadata)
+                self._json(200, {**self.server.latest_metadata, "movesSeq": live_link.moves_seq()})
             else:
                 self._respond(404, b'No model metadata available')
+        elif path == '/live-moves':
+            self._json(200, live_link.moves())
         elif path == '/user-info':
             # Return current connected user info
             with safe_user_info_access() as user_info:
