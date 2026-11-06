@@ -5,6 +5,14 @@ All notable changes to Framo Bridge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-11-06
+
+### Fixed
+- **Live from Blender no longer freezes Blender.** Each update used to run the export inside Blender, which showed the wait cursor and held the interface still for as long as it took, seconds on a real scene. A second Blender now does the export in the background, at low priority: yours only writes a small snapshot, 11 ms where the export took 3.6 s. A heavy scene takes a moment longer to reach Framo, and changes made meanwhile go out together.
+
+### Known limits
+- A texture painted in Blender reaches Framo once the image is saved or packed.
+
 ## [0.7.0] - 2026-11-06
 
 ### Added

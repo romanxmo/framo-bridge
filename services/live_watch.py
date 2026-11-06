@@ -7,10 +7,11 @@ the editor picks it up.
 
 What must stay true:
 
-- Tracking never gets in the way. A send moves nobody out of Edit Mode, changes
-  no selection and adds no undo step (``ExportService.export_live``), and waits
-  while a drag, a brush stroke or a render is running, so what Framo receives
-  is a finished action.
+- Tracking never gets in the way. The export runs in another process
+  (services/live_worker.py), so Blender does not wait for it. A send moves nobody
+  out of Edit Mode, changes no selection and adds no undo step, and waits while
+  a drag, a brush stroke or a render is running, so what Framo receives is a
+  finished action.
 - Only what affects the send counts. Selecting, or moving anything outside the
   collection, sends nothing. Which update means what was measured, not assumed:
   selecting and hiding tag only the Scene; a move tags the Object's transform;
@@ -26,8 +27,7 @@ import traceback
 import bpy
 from bpy.app.handlers import persistent
 
-from . import framo_collection, live_link
-from .export_service import ExportService
+from . import framo_collection, live_link, live_worker
 from ..control.commands import main_window_context
 from ..utils.logging_config import get_logger
 from ..utils.thread_safety import request_redraw
@@ -50,7 +50,7 @@ _EDITING_MODALS = (
 
 _pacer = live_link.SendPacer()
 _following = False
-# True for the length of a send, so what the export itself tags is never read as an edit.
+# True for the length of a snapshot, so anything it tags is never read as an edit.
 _sending = False
 # Something went out in this run, so an emptied collection is news: Framo must empty too.
 _sent_something = False
@@ -161,7 +161,12 @@ def _send():
 
     _sending = True
     try:
-        ExportService().export_live(context, objects)
+        # An edit lives in the edit mesh until it is flushed, and a snapshot reads the mesh.
+        for name in _object_names:
+            obj = bpy.data.objects.get(name)
+            if obj is not None and obj.mode != 'OBJECT':
+                obj.update_from_editmode()
+        live_worker.submit(context, objects)
         _sent_something = bool(objects)
         _status.update(objects=len(objects), error=None)
     except Exception as e:
@@ -170,7 +175,7 @@ def _send():
         _status["error"] = str(e)
     finally:
         try:
-            # Flush what the export tagged while the guard is up, so none of it reads as an edit later.
+            # Flush what the snapshot tagged while the guard is up, so none of it reads as an edit later.
             context.view_layer.update()
         finally:
             _sending = False
@@ -186,6 +191,7 @@ def _start_following():
     _status.update(objects=0, error=None)
     framo_collection.ensure(bpy.context.scene)
     _refresh_contents(bpy.context.view_layer)
+    live_worker.warm_up()
     # Framo has just arrived: it gets what is there now, with no edit needed.
     _pacer.reset()
     _pacer.note_change(time.monotonic() - live_link.QUIET_S)
@@ -196,6 +202,7 @@ def _stop_following():
     global _following
     _following = False
     _pacer.reset()
+    live_worker.shutdown()
     request_redraw()
 
 
@@ -209,7 +216,10 @@ def step():
     with main_window_context():
         if not _following:
             _start_following()
-        if _pacer.due(time.monotonic()) and not _busy():
+        error = live_worker.take_error()
+        if error is not None:
+            _status["error"] = error
+        if _pacer.due(time.monotonic()) and not live_worker.busy() and not _busy():
             _send()
 
 

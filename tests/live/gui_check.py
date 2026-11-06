@@ -49,7 +49,7 @@ request_guard.PORT = PORT
 request_guard.ALLOWED_HOSTS = frozenset({f"localhost:{PORT}", f"127.0.0.1:{PORT}"})
 
 import framo_bridge  # noqa: E402
-from framo_bridge.services import framo_collection, live_watch, preview_server  # noqa: E402
+from framo_bridge.services import framo_collection, live_watch, live_worker, preview_server  # noqa: E402
 from framo_bridge.utils.thread_safety import safe_user_info_access  # noqa: E402
 
 
@@ -110,6 +110,19 @@ def node(glb, name):
     return next(n for n in parse(glb)["nodes"] if n.get("name") == name)
 
 
+def image_width(glb):
+    """The width of the first image inside the GLB (WebP's VP8/VP8L/VP8X headers)."""
+    document = parse(glb)
+    view = document["bufferViews"][document["images"][0]["bufferView"]]
+    start = 20 + struct.unpack_from("<I", glb, 12)[0] + 8 + view.get("byteOffset", 0)
+    data = glb[start:start + view["byteLength"]]
+    if data[12:16] == b"VP8 ":
+        return struct.unpack_from("<H", data, 26)[0] & 0x3FFF
+    if data[12:16] == b"VP8L":
+        return (struct.unpack_from("<I", data, 21)[0] & 0x3FFF) + 1
+    return int.from_bytes(data[24:27], "little") + 1
+
+
 def bounds(glb, name):
     document = parse(glb)
     mesh = document["meshes"][node(glb, name)["mesh"]]
@@ -157,14 +170,22 @@ def wait(seconds):
         yield
 
 
-def next_send(timeout=5.0):
+def settle():
+    quiet = time.monotonic()
+    while time.monotonic() - quiet < 0.5:
+        if live_worker.busy() or live_watch._pacer.pending:
+            quiet = time.monotonic()
+        yield
+
+
+def next_send(timeout=20.0):
     """Wait for one send; the bytes, or None. A generator: use with ``yield from``."""
     seen = len(editor.sends)
     end = time.monotonic() + timeout
     while time.monotonic() < end:
         if len(editor.sends) > seen:
-            # Let anything that would follow it arrive, so the next step starts clean.
-            yield from wait(0.4)
+            # An export takes a while, so this one may predate the change: wait until nothing is left to come.
+            yield from settle()
             return editor.sends[-1][2]
         yield
     return None
@@ -291,12 +312,16 @@ def scenario():
     settings.texture_max_size = "1024"
     images_before = set(bpy.data.images)
     image = bpy.data.images.new("Big", 2048, 2048)
+    image.filepath_raw = os.path.join(PKG_ROOT, "big.png")
+    image.file_format = "PNG"
+    image.save()
     mat.use_nodes = True
     tex = mat.node_tree.nodes.new("ShaderNodeTexImage")
     tex.image = image
     mat.node_tree.links.new(tex.outputs[0], mat.node_tree.nodes["Principled BSDF"].inputs["Base Color"])
     glb = yield from next_send(10)
     check("a textured material sends", glb and parse(glb).get("images"))
+    check("the texture is shrunk in the send", glb and image_width(glb) == 1024, glb and image_width(glb))
     check("the original image is back on the material", tex.image == image and image.size[0] == 2048)
     check("no scaled copy is left", set(bpy.data.images) == images_before | {image}, [i.name for i in bpy.data.images])
     mat.node_tree.nodes.remove(tex)
@@ -386,6 +411,16 @@ def scenario():
     with ui():
         bpy.ops.object.mode_set(mode="OBJECT")
 
+    print("\n== A modifier that reads something outside", flush=True)
+    cutter = add_mesh("Cutter", bpy.ops.mesh.primitive_cube_add, outside, size=1, location=cube.location)
+    boolean = cube.modifiers.new("Cut", "BOOLEAN")
+    boolean.object = cutter
+    glb = yield from next_send()
+    check("the outside object shapes the send and stays out of it", glb and "Cutter" not in names(glb) and "Cube" in names(glb), glb and names(glb))
+    cube.modifiers.remove(boolean)
+    bpy.data.objects.remove(cutter)
+    yield from next_send()
+
     print("\n== A posed armature", flush=True)
     with ui():
         bpy.ops.object.armature_add(location=(0, 0, 0))
@@ -406,14 +441,24 @@ def scenario():
 
     print("\n== A heavy mesh", flush=True)
     heavy = add_mesh("Heavy", bpy.ops.mesh.primitive_grid_add, to_framo, x_subdivisions=360, y_subdivisions=360, size=4)
-    yield from next_send(10)
+    heavy.modifiers.new("Sub", "SUBSURF").levels = 1
+    yield from next_send(60)
     started = time.monotonic()
+    worst = 0.0
+    last = started
+    seen = len(editor.sends)
     heavy.location.z = 5
-    yield from next_send(10)
-    print(f"  edit to Framo, {len(heavy.data.polygons)} faces: {editor.sends[-1][0] - started:.2f} s", flush=True)
-    check("a heavy mesh arrives within a second and a half", editor.sends[-1][0] - started < 1.5, editor.sends[-1][0] - started)
+    # This loop is a tick of Blender's main thread: the longest gap between ticks is the longest freeze.
+    while len(editor.sends) == seen and time.monotonic() - started < 60:
+        now = time.monotonic()
+        worst = max(worst, now - last)
+        last = now
+        yield
+    print(f"  edit to Framo, {len(heavy.data.polygons) * 4} faces: {editor.sends[-1][0] - started:.2f} s, longest freeze {worst * 1000:.0f} ms", flush=True)
+    check("a heavy mesh reaches Framo", len(editor.sends) > seen)
+    check("Blender never froze for it", worst < 0.25, worst)
     bpy.data.objects.remove(heavy)
-    yield from next_send(5)
+    yield from next_send(30)
 
     print("\n== Emptying", flush=True)
     for obj in list(to_framo.all_objects):

@@ -1,21 +1,18 @@
 import bpy
 import os
 import tempfile
-from contextlib import contextmanager
 from datetime import datetime
 from ..processing import decimation, uv_unwrap, material_cleaner, material_analyzer, texture_scaler, uv_atlas
 from ..core.properties import update_export_status, clear_export_status
 from ..utils.context_managers import preserve_blender_state
 from ..utils.logging_config import get_logger
-from . import framo_collection, glb_names, live_link, preview_server
+from . import framo_collection, live_link, preview_server
 
 # Get logger for this module
 log = get_logger()
 
-_STAND_IN_COLLECTION = "Framo Live Stand-ins"
 
-
-def _gltf_params(filepath):
+def gltf_params(filepath):
     """What every send asks the exporter for."""
     return {
         'filepath': filepath,
@@ -59,19 +56,14 @@ def _read_export(path):
     return glb_data
 
 
-def _publish(context, glb_data, object_count, live, draco_enabled, extra=None):
-    """Hand the bytes to the server in memory; Framo polls them from there."""
+def send_metadata(context, object_count, live, draco_enabled, extra=None):
+    """What the server says about a send, apart from what is only known once the bytes exist."""
     settings = context.scene.framo_export_settings
-    if preview_server.server_instance is None:
-        raise Exception("the Bridge server is not running (is port 8080 taken?)")
     blend_filepath = bpy.data.filepath
     filename = (os.path.splitext(os.path.basename(blend_filepath))[0] + ".glb") if blend_filepath else "untitled.glb"
-    metadata = {
+    return {
         "filename": filename,
         "scene_name": context.scene.name,
-        "timestamp": datetime.now().isoformat(),
-        "size": len(glb_data),
-        "size_mb": f"{len(glb_data)/(1024*1024):.2f}",
         "export_settings": {
             "compression": settings.compression_preset,
             "draco_enabled": draco_enabled,
@@ -80,103 +72,22 @@ def _publish(context, glb_data, object_count, live, draco_enabled, extra=None):
         "live": live,
         **(extra or {}),
     }
+
+
+def publish(glb_data, metadata):
+    """Hand the bytes to the server in memory; Framo polls them from there. Touches no bpy: a thread calls it."""
+    if preview_server.server_instance is None:
+        raise Exception("the Bridge server is not running (is port 8080 taken?)")
     preview_server.server_instance.latest_glb = glb_data
-    preview_server.server_instance.latest_metadata = metadata
-
-
-@contextmanager
-def _export_source(context, objects):
-    """The collection to export, and the names to put right afterwards.
-
-    Normally that is "To Framo" itself. An object in Edit Mode cannot be
-    exported as it stands: its evaluated mesh is the edit mesh, which the
-    exporter cannot read (its UV layers come back empty). So it goes through a
-    stand-in: a throwaway copy holding the edit, in a throwaway collection,
-    gone before this returns.
-    """
-    if all(obj.mode == 'OBJECT' for obj in objects):
-        yield framo_collection.NAME, {}
-        return
-
-    stand_ins = {}
-    copied_data = []
-    collection = bpy.data.collections.new(_STAND_IN_COLLECTION)
-    context.scene.collection.children.link(collection)
-    try:
-        for obj in objects:
-            if obj.mode == 'OBJECT':
-                collection.objects.link(obj)
-                continue
-            obj.update_from_editmode()
-            copy = obj.copy()
-            copy.data = obj.data.copy()
-            copied_data.append(copy.data)
-            collection.objects.link(copy)
-            stand_ins[copy.name] = obj.name
-        yield collection.name, stand_ins
-    finally:
-        for name in stand_ins:
-            bpy.data.objects.remove(bpy.data.objects[name], do_unlink=True)
-        bpy.data.batch_remove(copied_data)
-        bpy.data.collections.remove(collection)
+    preview_server.server_instance.latest_metadata = {
+        **metadata,
+        "timestamp": datetime.now().isoformat(),
+        "size": len(glb_data),
+        "size_mb": f"{len(glb_data)/(1024*1024):.2f}",
+    }
 
 
 class ExportService:
-    def export_live(self, context, objects):
-        """Send ``objects`` for Framo's live editor, from a timer, with no button pressed.
-
-        This runs while the person works, so it leaves everything as it found
-        it: their mode, their selection, their meshes. That is why the panel's
-        heavy steps are not here: nothing is decimated, unwrapped or cleaned,
-        because each of those swaps mesh data on the person's own objects.
-        Framo gets what the viewport shows, modifiers applied, at the current
-        frame.
-
-        Raises on failure; services/live_watch.py reports it.
-        """
-        settings = context.scene.framo_export_settings
-        report = lambda _type, message: log.warning(message)
-        scaled_copies = {}
-
-        with tempfile.NamedTemporaryFile(suffix='.glb', delete=False) as tmp_file:
-            tmp_path = tmp_file.name
-
-        # The texture scaler reads the objects it works on from the context's selection.
-        with bpy.context.temp_override(selected_objects=objects):
-            try:
-                if settings.enable_texture_optimization:
-                    scaled_copies = texture_scaler.process_textures_native(
-                        bpy.context,
-                        scale_to_target=True,
-                        compress=False,
-                        target_size=int(settings.texture_max_size),
-                        excluded_materials=[item.material_name for item in settings.texture_exclude_materials if item.material_name],
-                    ).get('processed_images', {})
-
-                with _export_source(context, objects) as (source, stand_ins):
-                    params = _gltf_params(tmp_path)
-                    params.update({
-                        'collection': source,
-                        'use_selection': False,
-                        'use_visible': True,
-                        'export_current_frame': True,
-                        # Baking animation costs a pass over every frame; Framo shows the frame Blender is on.
-                        'export_animations': False,
-                        # The pose lives in the mesh, not in a skin Framo would have to play.
-                        'export_skins': False,
-                        'export_draco_mesh_compression_enable': False,
-                    })
-                    # The exporter forces the active object into Object Mode; with none it leaves every mode alone.
-                    with bpy.context.temp_override(active_object=None):
-                        _export_gltf(params, report)
-                    glb_data = glb_names.rename_nodes(_read_export(tmp_path), stand_ins)
-            finally:
-                if os.path.exists(tmp_path):
-                    os.unlink(tmp_path)
-                texture_scaler.restore_scaled_textures(bpy.context, scaled_copies)
-
-        _publish(context, glb_data, len(objects), True, False)
-
     def export_to_web(self, context, report_callback=None):
         """
         Main export logic.
@@ -464,7 +375,7 @@ class ExportService:
                 if context.selected_objects:
                     context.view_layer.objects.active = context.selected_objects[0]
 
-                export_params = _gltf_params(tmp_path)
+                export_params = gltf_params(tmp_path)
                 export_params['use_selection'] = True
                 
                 if settings.use_draco and not live:
@@ -494,7 +405,7 @@ class ExportService:
                 
                 update_export_status(context, "Uploading to Framo...")
                 
-                _publish(context, glb_data, len(send_objects), live, settings.use_draco and not live, extra_metadata)
+                publish(glb_data, send_metadata(context, len(send_objects), live, settings.use_draco and not live, extra_metadata))
 
                 size_mb = len(glb_data) / (1024 * 1024)
                 info_str = f" ({', '.join(info_parts)})" if info_parts else ""
