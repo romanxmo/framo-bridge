@@ -27,26 +27,45 @@ from framo_bridge.services import request_guard  # noqa: E402
 request_guard.PORT = 18081
 
 import framo_bridge  # noqa: E402
-from framo_bridge.services import framo_collection, live_watch  # noqa: E402
-from framo_bridge.ui.panels import FRAMO_PT_export_panel  # noqa: E402
+from framo_bridge.services import framo_collection, live_watch, preview_server  # noqa: E402
+from framo_bridge.ui.panels import FRAMO_PT_agents, FRAMO_PT_export_panel, FRAMO_PT_settings  # noqa: E402
 from stub_layout import exercise_panel  # noqa: E402
+
+# Another Blender holds the port: this one must say so, then take over when it lets go.
+import socket  # noqa: E402
+
+other = socket.socket()
+other.bind(("localhost", 18081))
+other.listen()
 
 framo_bridge.register()
 states = {}
-
-# No collection in the scene yet: the panel offers to make it.
+states["a taken port is not taken again"] = preview_server.server_instance is None
 log = exercise_panel(FRAMO_PT_export_panel, bpy.context)
-states["no collection"] = any("framo.create_collection" in str(entry) for entry in log)
+states["the panel says who has it"] = any("Another Blender" in str(entry) for entry in log)
+other.close()
+live_watch._next_claim = 0.0
+live_watch._claim_server()
+states["it takes over when the port frees"] = preview_server.server_instance is not None
 
-collection = framo_collection.ensure(bpy.context.scene)
-collection.objects.link(bpy.data.objects["Cube"])
+# Something selected and not in the collection: the panel offers to add it.
+bpy.data.objects["Cube"].select_set(True)
 log = exercise_panel(FRAMO_PT_export_panel, bpy.context)
-states["with an object"] = not any("framo.create_collection" in str(entry) for entry in log)
+states["offers to add the selection"] = any("framo.add_selected" in str(entry) for entry in log)
+
+bpy.ops.framo.add_selected()
+states["adds it"] = bpy.data.objects["Cube"] in set(framo_collection.find().all_objects)
+log = exercise_panel(FRAMO_PT_export_panel, bpy.context)
+states["then only offers to send"] = not any("framo.add_selected" in str(entry) for entry in log)
+states["Send to Framo is there"] = any("framo.export_to_web" in str(entry) for entry in log)
+states["settings draw"] = bool(exercise_panel(FRAMO_PT_settings, bpy.context))
+states["agents draw"] = bool(exercise_panel(FRAMO_PT_agents, bpy.context))
 
 live_watch._following = True
 live_watch._status["error"] = "boom"
 log = exercise_panel(FRAMO_PT_export_panel, bpy.context)
 states["following, with an error"] = bool(log)
+states["nothing to press while following"] = not any("framo.export_to_web" in str(entry) for entry in log)
 live_watch._following = False
 
 print("PANEL", states, flush=True)

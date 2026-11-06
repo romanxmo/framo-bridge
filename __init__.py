@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Framo Bridge",
     "author": "Roman Moor",
-    "version": (0, 9, 0),
+    "version": (0, 10, 0),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > Framo Bridge",
     "description": "Keep Framo in step with Blender: what is in the To Framo collection reaches Framo's 3D Editor as you work, or as an optimized GLB on demand",
@@ -30,7 +30,7 @@ classes = [
     properties.FramoExportSettings,
     
     operators.FRAMO_OT_export_to_web,
-    operators.FRAMO_OT_create_collection,
+    operators.FRAMO_OT_add_selected,
     operators.FRAMO_OT_reset_export_settings,
     operators.FRAMO_OT_analyze_materials,
     operators.FRAMO_OT_toggle_material_expanded,
@@ -52,7 +52,9 @@ classes = [
     operators.FRAMO_OT_download_update,
     operators.FRAMO_OT_view_changelog,
     
-    panels.FRAMO_PT_export_panel
+    panels.FRAMO_PT_export_panel,
+    panels.FRAMO_PT_settings,
+    panels.FRAMO_PT_agents,
 ]
 
 if hasattr(dependencies, 'FRAMO_OT_install_dependencies'):

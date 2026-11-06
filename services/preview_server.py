@@ -37,6 +37,12 @@ _RENDER_ROUTE = re.compile(r"/render/([0-9a-f]{32})(/file)?")
 _blender_version = None
 
 
+class _Server(ThreadingHTTPServer):
+    # On Windows this flag lets a second process bind the same port with no error, and
+    # requests then reach one of them at random. There, a taken port has to fail.
+    allow_reuse_address = os.name != 'nt'
+
+
 class GLBRequestHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         # Suppress console output
@@ -300,15 +306,15 @@ def start_server():
 
     _blender_version = ".".join(str(n) for n in bpy.app.version)
     try:
-        server_instance = ThreadingHTTPServer(('localhost', request_guard.PORT), GLBRequestHandler)
+        server_instance = _Server(('localhost', request_guard.PORT), GLBRequestHandler)
         # /command waits on Blender for up to 90 s; other routes must not queue behind it.
         server_instance.daemon_threads = True
         server_thread = threading.Thread(target=server_instance.serve_forever)
         server_thread.daemon = True
         server_thread.start()
         print(f"Framo Bridge server started on http://localhost:{request_guard.PORT}")
-    except Exception as e:
-        print(f"Failed to start server: {e}")
+    except OSError:
+        # Another Blender has the link. live_watch asks again, so this one takes over when it closes.
         server_instance = None
 
 def stop_server():

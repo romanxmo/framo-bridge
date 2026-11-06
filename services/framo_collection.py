@@ -41,6 +41,13 @@ def visible_objects(view_layer):
     return objects
 
 
+def not_in_it(objects):
+    """Those of `objects` the collection does not hold yet."""
+    collection = find()
+    held = set(collection.all_objects) if collection is not None else set()
+    return [obj for obj in objects if obj not in held]
+
+
 def watched_names(objects):
     """What can change a send's content: the names of ``objects``, what they instance, and their materials."""
     object_names = set()

@@ -3,7 +3,7 @@ from ..utils.thread_safety import get_update_state_copy, get_user_info_copy, saf
 from ..ui.icons import get_icon_id
 from ..utils.constants import ADDON_VERSION
 from ..processing import material_analyzer, texture_scaler
-from ..services import framo_collection, live_watch
+from ..services import framo_collection, live_watch, preview_server
 
 # Check availability of modules
 try:
@@ -33,7 +33,7 @@ except ImportError:
 MATERIAL_ANALYZER_AVAILABLE = True
 
 class FRAMO_PT_export_panel(bpy.types.Panel):
-    bl_label = f"Framo Bridge v{ADDON_VERSION[0]}.{ADDON_VERSION[1]}.{ADDON_VERSION[2]}"
+    bl_label = "Framo Bridge"
     bl_idname = "FRAMO_PT_export_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -89,54 +89,60 @@ class FRAMO_PT_export_panel(bpy.types.Panel):
                     row.label(text=f"Error: {error_msg}", icon='ERROR')
                 layout.separator()
 
-        # Connected user status
-        box = layout.box()
-        row = box.row()
-        if framo_user_info['name']:
-            row.label(text=f"Connected: {framo_user_info['name']}", icon='LINKED')
-        else:
-            row.label(text="Disconnected", icon='UNLINKED')
-
-        # What goes to Framo
-        send_objects = framo_collection.visible_objects(context.view_layer)
-        collection_box = layout.box()
-        collection_box.label(text=f"Sends the {framo_collection.NAME} collection", icon='OUTLINER_COLLECTION')
-        col = collection_box.column(align=True)
-        col.scale_y = 0.8
-        if not framo_collection.in_scene(context.scene):
-            collection_box.operator("framo.create_collection", icon='COLLECTION_NEW')
-        else:
-            col.label(text=f"{len(send_objects)} visible object(s) in it")
+        # One line says where things stand, and one button does the next thing
         live = live_watch.status()
-        if not live_watch.is_supported():
-            col.label(text="Live from Blender needs Blender 4.2 or newer", icon='INFO')
+        send_objects = framo_collection.visible_objects(context.view_layer)
+        count = f"{len(send_objects)} object{'' if len(send_objects) == 1 else 's'}"
+        if preview_server.server_instance is None:
+            layout.label(text="Another Blender is connected", icon='UNLINKED')
         elif live["following"]:
-            col.label(text="Live: Framo follows your changes", icon='REC')
-            if live["error"]:
-                row = col.row()
-                row.alert = True
-                row.label(text=f"Last update failed: {live['error'][:60]}", icon='ERROR')
+            layout.label(text=f"Live \u00b7 {count}", icon='REC')
+        elif framo_user_info['name']:
+            layout.label(text=f"Connected \u00b7 {count}", icon='LINKED')
         else:
-            col.label(text="Turn on Live from Blender in Framo to follow changes")
+            layout.label(text="Open Framo to connect", icon='UNLINKED')
+        if live["error"]:
+            row = layout.row()
+            row.alert = True
+            row.label(text=live["error"][:60], icon='ERROR')
+        if not live_watch.is_supported():
+            layout.label(text="Live needs Blender 4.2", icon='INFO')
 
-        # Framo control (session-only switch, off on every start)
-        control = get_control_state_copy()
-        control_box = layout.box()
-        control_box.prop(context.window_manager, "framo_control_enabled")
-        col = control_box.column(align=True)
-        col.scale_y = 0.8
-        col.label(text="Framo can run Python here: full Blender access.")
-        col.label(text="Ctrl+Z undoes each step.")
-        if control["last_at"]:
-            outcome = "ok" if control["last_ok"] else "failed"
-            col.label(
-                text=f"Last: {control['last_op']} at {control['last_at']:%H:%M:%S} ({outcome})",
-                icon='CHECKMARK' if control["last_ok"] else 'ERROR',
-            )
-        elif control["enabled"]:
-            col.label(text="Waiting for Framo...", icon='TIME')
-        layout.separator()
-        
+        adding = framo_collection.not_in_it(context.selected_objects)
+        if adding:
+            layout.operator("framo.add_selected", text=f"Add {len(adding)} to Framo", icon='ADD')
+
+        # While Framo is following there is nothing to press: changes go by themselves
+        if not live["following"]:
+            row = layout.row()
+            row.scale_y = 1.6
+            row.enabled = not settings.is_exporting
+            icon_id = get_icon_id('framo_icon')
+            if icon_id:
+                row.operator("framo.export_to_web", text="Send to Framo", icon_value=icon_id)
+            else:
+                row.operator("framo.export_to_web", text="Send to Framo", icon='EXPORT')
+            # Only during a send: the property is saved in the file, so a finished one would come back.
+            if settings.is_exporting and settings.export_status:
+                layout.label(text=settings.export_status)
+
+
+class FRAMO_PT_settings(bpy.types.Panel):
+    bl_label = "Export Settings"
+    bl_idname = "FRAMO_PT_settings"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Framo Bridge"
+    bl_parent_id = "FRAMO_PT_export_panel"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw_header_preset(self, context):
+        self.layout.operator("framo.reset_export_settings", text="", icon='FILE_REFRESH', emboss=False)
+
+    def draw(self, context):
+        layout = self.layout
+        settings = context.scene.framo_export_settings
+
         # Dependencies Status
         if DEPENDENCIES_AVAILABLE:
             dep_status = dependencies.check_all_dependencies()
@@ -166,13 +172,8 @@ class FRAMO_PT_export_panel(bpy.types.Panel):
                         op = row.operator("framo.install_dependencies", text="Install", icon='IMPORT')
                         op.package = dep['name']
 
-        # Export Settings
-        row = layout.row()
-        row.label(text="Export Settings:")
-        row.operator("framo.reset_export_settings", text="", icon='FILE_REFRESH', emboss=False)
         main_box = layout.box()
-        main_box.enabled = len(send_objects) > 0
-        
+
         # Compression preset
         compression_box = main_box.box()
         row = compression_box.row()
@@ -468,39 +469,29 @@ class FRAMO_PT_export_panel(bpy.types.Panel):
                                 op.old_material_name = material.name
                             col.separator()
 
-        # Export status
-        if settings.is_exporting and settings.export_status:
-            layout.separator()
-            status_box = layout.box()
-            status_row = status_box.row()
-            status_row.alignment = 'CENTER'
-            status_row.label(text=settings.export_status, icon='TIME')
-        
-        # Export button
-        layout.separator()
-        row = layout.row()
-        row.scale_y = 2.0
-        row.enabled = not settings.is_exporting
-        
-        icon_id = get_icon_id('framo_icon')
-        button_enabled = True
-        user_connected = framo_user_info.get('name') is not None
-        
-        if not user_connected or not send_objects or context.mode != 'OBJECT':
-            button_enabled = False
-            
-        if icon_id:
-            row.operator("framo.export_to_web", text="Send to Framo", icon_value=icon_id)
-        else:
-            row.operator("framo.export_to_web", text="Send to Framo", icon='EXPORT')
+        version = ".".join(str(n) for n in ADDON_VERSION)
+        layout.label(text=f"Framo Bridge {version}")
 
-        if not button_enabled:
-            warning_row = layout.row()
-            warning_row.scale_y = 0.9
-            if not user_connected:
-                warning_row.label(text="No user connected to framo.app", icon='INFO')
-            elif not send_objects:
-                warning_row.label(text=f"Put objects in the {framo_collection.NAME} collection", icon='ERROR')
-            else:
-                warning_row.label(text="Leave Edit Mode to send by hand", icon='INFO')
 
+class FRAMO_PT_agents(bpy.types.Panel):
+    bl_label = "Agents"
+    bl_idname = "FRAMO_PT_agents"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Framo Bridge"
+    bl_parent_id = "FRAMO_PT_export_panel"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        # A session-only switch, off on every start
+        layout.prop(context.window_manager, "framo_control_enabled")
+        control = get_control_state_copy()
+        if control["last_at"]:
+            outcome = "ok" if control["last_ok"] else "failed"
+            layout.label(
+                text=f"Last: {control['last_op']} at {control['last_at']:%H:%M:%S} ({outcome})",
+                icon='CHECKMARK' if control["last_ok"] else 'ERROR',
+            )
+        elif control["enabled"]:
+            layout.label(text="Waiting for Framo...", icon='TIME')

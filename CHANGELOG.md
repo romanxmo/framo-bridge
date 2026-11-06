@@ -5,6 +5,18 @@ All notable changes to Framo Bridge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-11-06
+
+### Changed
+- **The panel is one line and one button.** It says where things stand (`Live · 3 objects`), and Send to Framo sits right under it, not below every setting. While Framo is following it goes away, because nothing needs pressing. Export settings and agent control are folded away, and their sentences are gone.
+
+### Fixed
+- **Blender lights no longer wash out Framo's scene.** A lamp that looks right in Blender arrived at tens of thousands of candela and turned Realistic mode white. Live sends now carry lights the way Blender shows them.
+- **Two Blenders no longer fight over the link.** On Windows a second Blender took the same port with no error, and Framo reached one of them at random. Now the first keeps it, the second says Another Blender is connected, and it takes over by itself when the first closes.
+
+### Added
+- **Add to Framo.** Select objects and press one button to put them in the To Framo collection, with no dragging in the Outliner. They stay where they are too.
+
 ## [0.9.0] - 2026-11-06
 
 ### Added

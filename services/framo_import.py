@@ -177,7 +177,7 @@ def _without_empty_parents(objects):
 def import_model(path):
     context = bpy.context
     if context.mode != 'OBJECT':
-        raise BuildError("Blender is not in Object Mode. Leave Edit Mode there and send again.")
+        raise BuildError("Leave Edit Mode in Blender, then send again.")
     view_layer = context.view_layer
     selected = [obj.name for obj in context.selected_objects]
     active = view_layer.objects.active.name if view_layer.objects.active else None

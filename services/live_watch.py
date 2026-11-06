@@ -34,7 +34,7 @@ import bpy
 from bpy.app.handlers import persistent
 from mathutils import Matrix
 
-from . import framo_collection, live_link, live_worker
+from . import framo_collection, live_link, live_worker, preview_server
 from ..control.commands import main_window_context
 from ..utils.logging_config import get_logger
 from ..utils.thread_safety import request_redraw
@@ -42,6 +42,8 @@ from ..utils.thread_safety import request_redraw
 log = get_logger()
 
 TICK_S = 0.05
+# How often a Blender without the link asks for it. Another Blender holds it until it closes.
+CLAIM_S = 2.0
 
 # Blender's Z-up to glTF's Y-up, the turn the exporter gives everything it writes.
 _TO_GLTF = Matrix(((1, 0, 0, 0), (0, 0, 1, 0), (0, -1, 0, 0), (0, 0, 0, 1)))
@@ -63,6 +65,7 @@ _EDITING_MODALS = (
 )
 
 _pacer = live_link.SendPacer()
+_next_claim = 0.0
 _following = False
 # True for the length of a snapshot, so anything it tags is never read as an edit.
 _sending = False
@@ -274,8 +277,19 @@ def step():
             _send()
 
 
+def _claim_server():
+    global _next_claim
+    now = time.monotonic()
+    if preview_server.server_instance is None and now >= _next_claim:
+        _next_claim = now + CLAIM_S
+        preview_server.start_server()
+        if preview_server.server_instance is not None:
+            request_redraw()
+
+
 def _timer():
     try:
+        _claim_server()
         step()
     except Exception:
         traceback.print_exc()

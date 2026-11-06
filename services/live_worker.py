@@ -147,6 +147,9 @@ def submit(context, objects):
         # the library, whose preview would light it with Blender's lamps at full strength.
         'export_lights': True,
         'export_cameras': True,
+        # A lamp that looks right in Blender is tens of thousands of candela in physical units,
+        # which turns the editor's scene white. Unitless keeps what the person sees.
+        'export_import_convert_lighting_mode': 'COMPAT',
         # Baking animation costs a pass over every frame; Framo shows the frame Blender is on.
         'export_animations': False,
         # The pose lives in the mesh, not in a skin Framo would have to play.

@@ -59,8 +59,12 @@ class FRAMO_OT_export_to_web(Operator):
                  return False
         # This export swaps mesh data, which an object in Edit Mode cannot take.
         if context.mode != 'OBJECT':
+            cls.poll_message_set("Leave Edit Mode first")
             return False
-        return bool(framo_collection.visible_objects(context.view_layer))
+        if not framo_collection.visible_objects(context.view_layer):
+            cls.poll_message_set("Select objects and add them to Framo first")
+            return False
+        return True
 
     def execute(self, context):
         log.debug("FRAMO_OT_export_to_web.execute: Starting...")
@@ -70,14 +74,20 @@ class FRAMO_OT_export_to_web(Operator):
         log.debug("FRAMO_OT_export_to_web.execute: About to return to Blender...")
         return result
 
-class FRAMO_OT_create_collection(Operator):
-    bl_idname = "framo.create_collection"
-    bl_label = "Create To Framo Collection"
-    bl_description = "Add the To Framo collection to this scene. What you put in it is what goes to Framo"
+class FRAMO_OT_add_selected(Operator):
+    bl_idname = "framo.add_selected"
+    bl_label = "Add to Framo"
+    bl_description = "Put the selected objects in the To Framo collection, as well as where they are"
     bl_options = {'REGISTER', 'UNDO'}
 
+    @classmethod
+    def poll(cls, context):
+        return bool(framo_collection.not_in_it(context.selected_objects))
+
     def execute(self, context):
-        framo_collection.ensure(context.scene)
+        collection = framo_collection.ensure(context.scene)
+        for obj in framo_collection.not_in_it(context.selected_objects):
+            collection.objects.link(obj)
         return {'FINISHED'}
 
 class FRAMO_OT_check_for_updates(Operator):
