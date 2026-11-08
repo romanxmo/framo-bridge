@@ -39,8 +39,10 @@ JOB_TIMEOUT_S = 300.0
 _WORKER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "live_worker_main.py")
 _DONE = "FRAMO_WORKER_DONE"
 _FAILED = "FRAMO_WORKER_FAILED"
-# No console window, and below the person's Blender when both want the processor.
-_CREATION_FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0)
+# No console window. Normal priority on purpose: below normal, any busy program at normal
+# priority starves the export (a browser compiling shaders, a sync service), and a send that
+# takes a second idle took two to five minutes, or timed out, which reads as edits not arriving.
+_CREATION_FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 _lock = threading.Lock()
 _spare = None

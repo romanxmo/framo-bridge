@@ -5,6 +5,11 @@ All notable changes to Framo Bridge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.2] - 2026-11-08
+
+### Fixed
+- **Live edits arrive in seconds again.** The live link's background export ran at below-normal priority, so any busy program, such as a browser compiling shaders, starved it: a send that takes about two seconds took two to five minutes, or timed out, and material edits looked like they never reached Framo. It now runs at normal priority.
+
 ## [0.12.1] - 2026-11-08
 
 ### Changed
