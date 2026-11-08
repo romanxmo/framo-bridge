@@ -5,6 +5,11 @@ All notable changes to Framo Bridge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.1] - 2026-11-08
+
+### Changed
+- **No more false alarm on send.** A material plain glTF cannot hold used to be reported as unsupported. Its shader now goes along, so a send says these go to Framo as Blender shaders, and the Material Readiness panel says the same. Framo names any it cannot rebuild.
+
 ## [0.12.0] - 2026-11-08
 
 ### Changed

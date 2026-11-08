@@ -426,7 +426,8 @@ class FRAMO_PT_settings(bpy.types.Panel):
                 
                 summary_row = box.row()
                 if unsupported_count > 0:
-                    summary_row.label(text=f"{unsupported_count} material(s) need attention", icon='ERROR')
+                    # glTF cannot hold these, but their graphs go along and Framo rebuilds what it can read.
+                    summary_row.label(text=f"{unsupported_count} go to Framo as Blender shaders", icon='NODETREE')
                 else:
                     summary_row.label(text=f"All {len(materials)} materials ready", icon='CHECKMARK')
                 
@@ -442,7 +443,7 @@ class FRAMO_PT_settings(bpy.types.Panel):
                             material_box = col.box()
                             material_col = material_box.column(align=False)
                             header_row = material_col.row(align=True)
-                            header_row.label(icon='X')
+                            header_row.label(icon='NODETREE')
                             name_split = header_row.split(factor=0.7)
                             name_split.label(text=material.name)
                             

@@ -329,7 +329,9 @@ class ExportService:
                     material_list = ', '.join(unsupported_materials[:5])
                     if len(unsupported_materials) > 5:
                         material_list += f" (+{len(unsupported_materials) - 5} more)"
-                    report_callback({'WARNING'}, f"{len(unsupported_materials)} unsupported material(s) detected: {material_list}. Check Material Readiness panel.")
+                    # Their node graphs ride along in the send (shader_graphs.embed), and Framo rebuilds
+                    # each one it can read and names the ones it cannot: this is news, not a fault.
+                    report_callback({'INFO'}, f"{len(unsupported_materials)} material(s) go to Framo as Blender shaders: {material_list}. Framo rebuilds the ones it can read and names the rest.")
 
                 # 8. Texture Optimization
                 if settings.enable_texture_optimization:
