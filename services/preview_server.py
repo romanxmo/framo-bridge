@@ -132,8 +132,6 @@ class GLBRequestHandler(BaseHTTPRequestHandler):
             with safe_user_info_access() as user_info:
                 body = json.dumps(user_info).encode()
             self._respond(200, body, 'application/json')
-        elif path == '/shader-graphs':
-            self._main_thread("shader_graphs", {})
         elif path == '/bridge-info':
             self._json(200, {
                 "protocol": PROTOCOL_VERSION,

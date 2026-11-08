@@ -21,6 +21,7 @@ half would talk to that Blender instead, so the run refuses up front.
 import base64
 import http.client
 import json
+import struct
 import os
 import shutil
 import socket
@@ -536,22 +537,29 @@ try:
     check("disconnect-user from Framo", request("POST", "/disconnect-user")[0] == 200
           and thread_safety.get_user_info_copy()["name"] is None)
 
-    section("HTTP: shader graphs")
+    section("shader graphs ride along in a send")
+    from framo_bridge.services import shader_graphs
     shader = bpy.data.materials.new("Framo test shader")
     if hasattr(shader, "use_nodes"):
         shader.use_nodes = True
     ramp = shader.node_tree.nodes.new("ShaderNodeValToRGB")
     endless = shader.node_tree.nodes.new("ShaderNodeMath")
     endless.inputs[0].default_value = float("nan")
-    code, headers, body = pump_while(lambda: request("GET", "/shader-graphs"))
-    answer = json.loads(body, parse_constant=lambda name: (_ for _ in ()).throw(ValueError(name)))
-    check("Framo reads the open file's shaders", code == 200 and answer["ok"]
-          and headers.get("Access-Control-Allow-Origin") == FRAMO, str(body[:200]))
-    nodes = {n["name"]: n for n in answer["result"]["m"]["Framo test shader"]["nodes"]}
+    head = json.dumps({"asset": {"version": "2.0"}, "materials": [{"name": shader.name}, {"name": "Not in this file"}]}).encode()
+    head += b" " * (-len(head) % 4)
+    glb = struct.pack("<4sII", b"glTF", 2, 20 + len(head)) + struct.pack("<I4s", len(head), b"JSON") + head
+    names = shader_graphs.glb_material_names(glb)
+    check("a send's material names are read from the GLB", names == [shader.name, "Not in this file"], str(names))
+    sent = shader_graphs.embed(glb, shader_graphs.graphs_for(names))
+    length = struct.unpack_from("<I", sent, 12)[0]
+    doc = json.loads(sent[20:20 + length], parse_constant=lambda name: (_ for _ in ()).throw(ValueError(name)))
+    graphs = doc["extras"][shader_graphs.EXTRA]
+    check("the send carries the graphs of its materials only", list(graphs["m"]) == [shader.name], str(list(graphs["m"])))
+    check("the GLB's length still adds up", struct.unpack_from("<I", sent, 8)[0] == len(sent))
+    nodes = {n["name"]: n for n in graphs["m"][shader.name]["nodes"]}
     check("a ramp arrives as a 256-entry table", len(nodes[ramp.name]["ramp"]["lut"]) == 256)
     check("a value JSON cannot hold arrives as null", nodes[endless.name]["ins"]["Value"]["v"] is None)
-    check("shaders refused to a foreign origin", request("GET", "/shader-graphs", origin="https://evil.example")[0] == 403)
-    check("shaders refused without an Origin", request("GET", "/shader-graphs", origin=None)[0] == 403)
+    check("a send with no graphs is left as it was", shader_graphs.embed(glb, {"m": {}, "g": {}}) == glb)
     bpy.data.materials.remove(shader)
 
     section("send for the live editor")

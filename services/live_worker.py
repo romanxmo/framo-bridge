@@ -28,7 +28,7 @@ import time
 
 import bpy
 
-from . import export_service, framo_collection
+from . import export_service, framo_collection, shader_graphs
 from ..utils.logging_config import get_logger
 from ..utils.thread_safety import request_redraw
 
@@ -49,13 +49,15 @@ _error = None
 
 
 class _Job:
-    __slots__ = ("process", "directory", "output", "metadata", "started")
+    __slots__ = ("process", "directory", "output", "metadata", "graphs", "started")
 
-    def __init__(self, process, directory, output, metadata):
+    def __init__(self, process, directory, output, metadata, graphs):
         self.process = process
         self.directory = directory
         self.output = output
         self.metadata = metadata
+        # Read here on the main thread, from the person's materials: the worker's copies have the same names.
+        self.graphs = graphs
         self.started = time.monotonic()
 
 
@@ -111,7 +113,7 @@ def _finish(job):
         job.process.wait()
         if failure is None:
             with open(job.output, "rb") as f:
-                export_service.publish(f.read(), job.metadata)
+                export_service.publish(shader_graphs.embed(f.read(), job.graphs), job.metadata)
     except Exception as e:
         failure = str(e)
     finally:
@@ -175,7 +177,7 @@ def submit(context, objects):
     except OSError as e:
         shutil.rmtree(directory, ignore_errors=True)
         raise Exception(f"the export process stopped: {e}")
-    running = _Job(process, directory, output, metadata)
+    running = _Job(process, directory, output, metadata, export_service.graphs_of(slot.material.name for obj in objects for slot in obj.material_slots if slot.material))
     with _lock:
         _running = running
     threading.Thread(target=_finish, args=(running,), daemon=True).start()

@@ -6,7 +6,7 @@ from ..processing import decimation, uv_unwrap, material_cleaner, material_analy
 from ..core.properties import update_export_status, clear_export_status
 from ..utils.context_managers import preserve_blender_state
 from ..utils.logging_config import get_logger
-from . import framo_collection, live_link, preview_server
+from . import framo_collection, live_link, preview_server, shader_graphs
 
 # Get logger for this module
 log = get_logger()
@@ -45,6 +45,15 @@ def _export_gltf(params, report_callback):
     except Exception as e:
         print(f"Export also failed with NONE format: {e}")
         raise Exception(f"GLB export failed: {e}")
+
+
+def graphs_of(names):
+    """The shader graphs a send carries. A graph that cannot be read costs the send its shaders, never the send."""
+    try:
+        return shader_graphs.graphs_for(sorted(set(names)))
+    except Exception as e:
+        log.error(f"Shader graphs left out of the send: {e}")
+        return {"m": {}, "g": {}}
 
 
 def _read_export(path):
@@ -391,6 +400,7 @@ class ExportService:
                 
                 _export_gltf(export_params, report_callback)
                 glb_data = _read_export(tmp_path)
+                glb_data = shader_graphs.embed(glb_data, graphs_of(shader_graphs.glb_material_names(glb_data)))
                 
                 extra_metadata = {}
                 if materials_to_analyze and material_analysis_results:

@@ -1,22 +1,21 @@
-"""The open file's shader graphs, for Framo's New material dialog to compile.
+"""Shader graphs for Framo to compile into its own shaders.
 
-``GET /shader-graphs`` answers with this. Without the add-on's server, the same
-dump can be written to a file, which the dialog also opens:
-
-    blender -b scene.blend --python services/shader_graphs.py -- out.json
+Every send carries the graphs of the materials in it, inside the GLB at
+``extras.framoBlenderShaders`` (``embed``), so the model opens in Framo with its
+shaders and nobody has to ask for them (framo-app's components/rt/doc/blenderShaders.ts).
 
 Holds only what Framo's compiler reads (components/rt/procedural/compile.ts in
 framo-app): socket ids, every enum, and ramps and curves sampled to 256-entry
 tables, which is how Cycles evaluates them. Node groups come along once each,
-by name. The answer goes out as JSON, so a value JSON cannot hold is null: an
-infinity would make the whole answer unreadable, and a datablock socket holds
+by name. The graphs go out as JSON, so a value JSON cannot hold is null: an
+infinity would make the whole file unreadable, and a datablock socket holds
 nothing the compiler can use.
 
-bpy and the standard library only, so this file also runs on its own.
+bpy and the standard library only.
 """
 import json
 import math
-import sys
+import struct
 
 import bpy
 
@@ -88,16 +87,51 @@ def tree_json(t):
     }
 
 
-def shader_graphs():
-    return {
-        "m": {m.name: tree_json(m.node_tree) for m in bpy.data.materials if m.node_tree},
-        "g": {g.name: tree_json(g) for g in bpy.data.node_groups if g.bl_idname == "ShaderNodeTree"},
-    }
+EXTRA = "framoBlenderShaders"
 
 
-if __name__ == "__main__":
-    out = sys.argv[sys.argv.index("--") + 1]
-    dump = shader_graphs()
-    with open(out, "w", encoding="utf8") as f:
-        json.dump(dump, f)
-    print(f"wrote {len(dump['m'])} materials, {len(dump['g'])} groups to {out}")
+def graphs_for(names):
+    """The graphs of these materials and of every group they reach, once each. Main thread only."""
+    graphs = {"m": {}, "g": {}}
+
+    def groups(tree):
+        for n in tree.nodes:
+            if n.bl_idname == "ShaderNodeGroup" and n.node_tree and n.node_tree.name not in graphs["g"]:
+                graphs["g"][n.node_tree.name] = tree_json(n.node_tree)
+                groups(n.node_tree)
+
+    for name in names:
+        material = bpy.data.materials.get(name)
+        if material is not None and material.node_tree is not None:
+            graphs["m"][name] = tree_json(material.node_tree)
+            groups(material.node_tree)
+    return graphs
+
+
+def _glb_parts(glb):
+    """A GLB's JSON and the bytes after its JSON chunk."""
+    magic, version, _length = struct.unpack_from("<4sII", glb, 0)
+    if magic != b"glTF" or version != 2:
+        raise ValueError("not a glTF 2 binary")
+    json_length, json_type = struct.unpack_from("<I4s", glb, 12)
+    if json_type != b"JSON":
+        raise ValueError("a GLB's first chunk is not JSON")
+    return json.loads(glb[20:20 + json_length].decode("utf8")), glb[20 + json_length:]
+
+
+def glb_material_names(glb):
+    """The names of the materials a GLB holds. Touches no bpy."""
+    doc, _rest = _glb_parts(glb)
+    return [m["name"] for m in doc.get("materials", []) if "name" in m]
+
+
+def embed(glb, graphs):
+    """The GLB with ``graphs`` in its root extras. Touches no bpy, so a thread may call it."""
+    if not graphs["m"]:
+        return glb
+    doc, rest = _glb_parts(glb)
+    doc.setdefault("extras", {})[EXTRA] = graphs
+    text = json.dumps(doc, separators=(",", ":"), allow_nan=False).encode("utf8")
+    text += b" " * (-len(text) % 4)
+    return struct.pack("<4sII", b"glTF", 2, 12 + 8 + len(text) + len(rest)) + struct.pack("<I4s", len(text), b"JSON") + text + rest
+

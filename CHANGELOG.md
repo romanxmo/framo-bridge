@@ -5,6 +5,14 @@ All notable changes to Framo Bridge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-11-08
+
+### Changed
+- **Your shaders come along by themselves.** Every send, by the button or live, now carries the shader graphs of its materials inside the model, and Framo shows them as soon as the model opens. A shader Framo cannot build yet, such as one using an Image Texture, keeps the material Blender exports for it. Needs Framo's current version.
+
+### Removed
+- The Get from Blender button's endpoint (`/shader-graphs`): the New material dialog no longer reads shaders by hand.
+
 ## [0.11.0] - 2026-11-06
 
 ### Added
